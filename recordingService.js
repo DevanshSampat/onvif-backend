@@ -263,10 +263,12 @@ async function rotateNextSegment() {
 
   // The new slot starting now is assigned getSlotStartTimestamp(now) (e.g. 01:50)
   currentSlotName = `${getSlotStartTimestamp(now)}.mp4`;
-  const durationSeconds = 10 * 60; // 600 seconds
+  
+  // Dynamically calculate exact seconds remaining until next 10-minute clock boundary
+  const secondsToNext = getSecondsToNextBoundary(now);
 
   console.log(`[Recorder] 10-minute boundary reached.`);
-  console.log(`[Recorder] Completed segment: ${completedSlotName}. Starting new segment slot: ${currentSlotName}`);
+  console.log(`[Recorder] Completed segment: ${completedSlotName}. Next segment (${currentSlotName}) aligned to boundary in ${secondsToNext}s`);
 
   // 1. Force-stop HLS stream, snapshot current HLS directory to temp folder, & start fresh HLS stream
   try {
@@ -279,12 +281,12 @@ async function rotateNextSegment() {
     console.error('[Recorder] Error archiving HLS on rotation:', err.message);
   }
 
-  // 3. Schedule next 10-minute boundary rotation
+  // 3. Schedule next boundary rotation dynamically to prevent clock drift
   rotationTimer = setTimeout(async () => {
     if (isRecording && currentRtspUrl) {
       await rotateNextSegment();
     }
-  }, durationSeconds * 1000);
+  }, secondsToNext * 1000);
 }
 
 /**
