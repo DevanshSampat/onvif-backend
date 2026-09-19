@@ -25,5 +25,11 @@ Thumbs.db
 .vscode/
 .idea/
 
-#credentials
+# credentials
 credentials.json
+
+# recordings
+recordings
+
+#temporary directory to process recordings
+temp

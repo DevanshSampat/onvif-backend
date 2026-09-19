@@ -3,6 +3,7 @@ const cors = require('cors');
 const path = require('path');
 const onvifService = require('./onvifService');
 const streamService = require('./streamService');
+const recordingService = require('./recordingService');
 const fs = require('fs');
 const axios = require('axios');
 
@@ -13,8 +14,9 @@ const PORT = process.env.PORT || 5001;
 app.use(cors());
 app.use(express.json());
 
-// Serve generated HLS stream files
-streamService.ensureHlsDirectory();
+// Reset HLS stream directory & process any existing temp recording batches before start
+streamService.resetHlsDirectory();
+recordingService.processExistingTempBatches();
 app.use('/hls', express.static(path.join(__dirname, 'public', 'hls'), {
   setHeaders: (res, filePath) => {
     if (filePath.endsWith('.m3u8')) {
@@ -27,7 +29,7 @@ app.use('/hls', express.static(path.join(__dirname, 'public', 'hls'), {
   }
 }));
 
-app.get('/',(req,res)=> res.json({ message: 'ONVIF CCTV Backend Server running' }))
+app.get('/', (req, res) => res.json({ message: 'ONVIF CCTV Backend Server running' }));
 
 // API Routes
 
@@ -65,18 +67,18 @@ app.post('/api/connect', async (req, res) => {
     }
     const deviceInfo = await onvifService.connectDevice({ xaddr, user, pass });
     res.json({ success: true, data: deviceInfo });
-    fs.writeFileSync("credentials.json",JSON.stringify({
+    fs.writeFileSync("credentials.json", JSON.stringify({
       xaddr,
       user,
       pass
-    },null,4));
+    }, null, 4));
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
 });
 
 /**
- * Start streaming RTSP video (transcoding to HLS)
+ * Start streaming RTSP video (transcoding to HLS + 10-min interval recording)
  */
 app.post('/api/stream/start', async (req, res) => {
   try {
@@ -93,16 +95,78 @@ app.post('/api/stream/start', async (req, res) => {
 });
 
 /**
- * Stop active video stream
+ * Stop active video stream & recording loop
  */
 app.post('/api/stream/stop', async (req, res) => {
   try {
     await streamService.stopStream();
-    res.json({ success: true, message: 'Stream stopped' });
+    res.json({ success: true, message: 'Stream and recording stopped' });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
 });
+
+/**
+ * List all downloadable MP4 stream recordings (kept for 24h)
+ */
+app.get('/api/recordings', (req, res) => {
+  try {
+    const recordings = recordingService.getRecordingsList();
+    res.json({ success: true, count: recordings.length, recordings });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * Download a specific recording MP4 file using query parameter ?id=filename (or /download/:filename for fallback)
+ */
+app.get('/api/recordings/download', (req, res) => {
+  const filenameParam = req.query.id || req.query.filename;
+  if (!filenameParam) {
+    return res.status(400).json({ success: false, error: 'id query parameter is required' });
+  }
+  const filename = path.basename(filenameParam);
+  const filePath = path.join(recordingService.RECORDINGS_DIR, filename);
+
+  if (!fs.existsSync(filePath)) {
+    return res.status(404).json({ success: false, error: 'Recording file not found or expired' });
+  }
+
+  res.download(filePath, filename);
+});
+
+app.get('/api/recordings/download/:filename', (req, res) => {
+  const filename = path.basename(req.params.filename);
+  const filePath = path.join(recordingService.RECORDINGS_DIR, filename);
+
+  if (!fs.existsSync(filePath)) {
+    return res.status(404).json({ success: false, error: 'Recording file not found or expired' });
+  }
+
+  res.download(filePath, filename);
+});
+
+/**
+ * Play/stream a specific recording MP4 file in browser video player via /api/recordings/stream
+ */
+const handleStreamRecording = (req, res) => {
+  const filenameParam = req.params.filename || req.query.id || req.query.filename;
+  if (!filenameParam) {
+    return res.status(400).json({ success: false, error: 'id query parameter or filename path is required' });
+  }
+  const filename = path.basename(filenameParam);
+  const filePath = path.join(recordingService.RECORDINGS_DIR, filename);
+
+  if (!fs.existsSync(filePath)) {
+    return res.status(404).json({ success: false, error: 'Recording file not found' });
+  }
+
+  res.sendFile(filePath);
+};
+
+app.get('/api/recordings/stream/:filename', handleStreamRecording);
+app.get('/api/recordings/stream', handleStreamRecording);
 
 /**
  * PTZ Control command (Up, Down, Left, Right, Zoom, Stop)
@@ -146,11 +210,14 @@ app.listen(PORT, () => {
   console.log(`HLS Stream path: http://localhost:${PORT}/hls/stream.m3u8`);
   console.log(`=================================`);
 
-  if(fs.existsSync("credentials.json")) {
+  if (fs.existsSync("credentials.json")) {
     const credentials = JSON.parse(fs.readFileSync("credentials.json"));
-    axios.post(`http://localhost:${PORT}/api/connect`,credentials)
-    .then((response)=>{
-      axios.post(`http://localhost:${PORT}/api/stream/start`,{rtspUrl:response.data.data.streamUrl});
-    })
+    axios.post(`http://localhost:${PORT}/api/connect`, credentials)
+      .then((response) => {
+        axios.post(`http://localhost:${PORT}/api/stream/start`, { rtspUrl: response.data.data.streamUrl });
+      })
+      .catch((err) => {
+        console.error("Auto-connect failed:", err.message);
+      });
   }
 });
