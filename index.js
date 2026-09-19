@@ -25,6 +25,8 @@ app.use('/hls', express.static(path.join(__dirname, 'public', 'hls'), {
   }
 }));
 
+app.get('/',(req,res)=> res.json({ message: 'ONVIF CCTV Backend Server running' }))
+
 // API Routes
 
 /**

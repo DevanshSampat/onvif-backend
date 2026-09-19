@@ -76,8 +76,9 @@ async function startStream(rtspUrl, options = {}) {
         '-b:v 2M',
         '-an',                      // Disable audio to avoid PCM_ALAW audio sync stalls
         '-hls_time 1',
-        '-hls_list_size 5',
-        '-hls_flags delete_segments+omit_endlist',
+        '-hls_list_size 3',
+        '-hls_flags delete_segments+omit_endlist+discont_start',
+        '-hls_playlist_type event',
         '-start_number 0',
       ])
       .output(playlistPath);
