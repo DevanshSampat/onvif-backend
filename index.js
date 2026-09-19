@@ -3,6 +3,8 @@ const cors = require('cors');
 const path = require('path');
 const onvifService = require('./onvifService');
 const streamService = require('./streamService');
+const fs = require('fs');
+const axios = require('axios');
 
 const app = express();
 const PORT = process.env.PORT || 5001;
@@ -61,9 +63,13 @@ app.post('/api/connect', async (req, res) => {
     if (!xaddr) {
       return res.status(400).json({ success: false, error: 'xaddr is required' });
     }
-
     const deviceInfo = await onvifService.connectDevice({ xaddr, user, pass });
     res.json({ success: true, data: deviceInfo });
+    fs.writeFileSync("credentials.json",JSON.stringify({
+      xaddr,
+      user,
+      pass
+    },null,4));
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
@@ -139,4 +145,12 @@ app.listen(PORT, () => {
   console.log(`ONVIF CCTV Backend Server running on http://localhost:${PORT}`);
   console.log(`HLS Stream path: http://localhost:${PORT}/hls/stream.m3u8`);
   console.log(`=================================`);
+
+  if(fs.existsSync("credentials.json")) {
+    const credentials = JSON.parse(fs.readFileSync("credentials.json"));
+    axios.post(`http://localhost:${PORT}/api/connect`,credentials)
+    .then((response)=>{
+      axios.post(`http://localhost:${PORT}/api/stream/start`,{rtspUrl:response.data.data.streamUrl});
+    })
+  }
 });
