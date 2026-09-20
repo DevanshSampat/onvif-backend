@@ -149,7 +149,8 @@ async function startHlsProcess(rtspUrl) {
       .outputOptions([
         '-c:v h264_videotoolbox',  // Use macOS hardware acceleration for fast HEVC -> H264 transcoding
         '-b:v 2M',
-        '-an',                      // Disable audio to avoid PCM_ALAW audio sync stalls
+        '-c:a aac',                 // Transcode audio to AAC for HLS audio playback
+        '-b:a 128k',
         '-hls_time 1',
         '-hls_list_size 0',         // 0 keeps all segment entries in playlist for full 10 minutes
         '-hls_flags omit_endlist+discont_start', // DO NOT use delete_segments (so all 600s .ts files remain intact)
@@ -238,7 +239,8 @@ function startSoftwareFallbackStream(rtspUrl, playlistPath, resolve, reject) {
       '-preset ultrafast',
       '-tune zerolatency',
       '-pix_fmt yuv420p',
-      '-an',
+      '-c:a aac',
+      '-b:a 128k',
       '-hls_time 1',
       '-hls_list_size 0',
       '-hls_flags omit_endlist+discont_start',
