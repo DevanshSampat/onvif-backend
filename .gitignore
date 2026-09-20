@@ -31,5 +31,11 @@ credentials.json
 # recordings
 recordings
 
-#temporary directory to process recordings
+# temporary directory to process recordings
 temp
+
+# snapshots when a human subject is moving
+human_detection_alerts
+alerts_processing
+last_processed_alert.txt
+person_detection_scores.json

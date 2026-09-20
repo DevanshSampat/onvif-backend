@@ -4,6 +4,8 @@ const path = require('path');
 const onvifService = require('./onvifService');
 const streamService = require('./streamService');
 const recordingService = require('./recordingService');
+const detectionService = require('./detectionService');
+const { fork } = require('child_process');
 const fs = require('fs');
 const axios = require('axios');
 
@@ -14,9 +16,29 @@ const PORT = process.env.PORT || 5001;
 app.use(cors());
 app.use(express.json());
 
-// Reset HLS stream directory & process any existing temp recording batches before start
+// Serve static HLS and Human Detection Alerts
 streamService.resetHlsDirectory();
 recordingService.processExistingTempBatches();
+detectionService.startAlertWorker();
+
+// Periodically run personDetectionFilterResults.js every 5 minutes in a non-blocking child process
+function schedulePersonDetectionFilter() {
+  const filterScript = path.join(__dirname, 'personDetectionFilterResults.js');
+
+  const runFilterProcess = () => {
+    console.log('[Scheduled Task] Running personDetectionFilterResults.js...');
+    const child = fork(filterScript, [], { stdio: 'inherit' });
+    child.on('exit', (code) => {
+      console.log(`[Scheduled Task] personDetectionFilterResults.js completed (exit code ${code}).`);
+    });
+  };
+
+  // Run initial filter after 10 seconds, then repeat every 5 minutes (300,000 ms)
+  setTimeout(runFilterProcess, 10000);
+  setInterval(runFilterProcess, 5 * 60 * 1000);
+}
+
+schedulePersonDetectionFilter();
 app.use('/hls', express.static(path.join(__dirname, 'public', 'hls'), {
   setHeaders: (res, filePath) => {
     if (filePath.endsWith('.m3u8')) {
@@ -28,6 +50,7 @@ app.use('/hls', express.static(path.join(__dirname, 'public', 'hls'), {
     }
   }
 }));
+app.use('/human_detection_alerts', express.static(detectionService.ALERTS_DIR));
 
 app.get('/', (req, res) => res.json({ message: 'ONVIF CCTV Backend Server running' }));
 
@@ -131,6 +154,36 @@ app.get('/api/recordings/download', (req, res) => {
 
   if (!fs.existsSync(filePath)) {
     return res.status(404).json({ success: false, error: 'Recording file not found or expired' });
+  }
+
+  res.download(filePath, filename);
+});
+
+/**
+ * List all saved human detection alert image snapshots
+ */
+app.get('/api/alerts', (req, res) => {
+  try {
+    const alerts = detectionService.getAlertsList();
+    res.json({ success: true, count: alerts.length, alerts });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * Download a specific alert JPG image
+ */
+app.get('/api/alerts/download', (req, res) => {
+  const filenameParam = req.query.id || req.query.filename;
+  if (!filenameParam) {
+    return res.status(400).json({ success: false, error: 'id query parameter is required' });
+  }
+  const filename = path.basename(filenameParam);
+  const filePath = path.join(detectionService.ALERTS_DIR, filename);
+
+  if (!fs.existsSync(filePath)) {
+    return res.status(404).json({ success: false, error: 'Alert image not found' });
   }
 
   res.download(filePath, filename);
