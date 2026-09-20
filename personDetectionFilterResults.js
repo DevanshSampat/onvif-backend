@@ -93,11 +93,11 @@ async function checkScores() {
     if(range1 === range2) {
       const frameNumber1 = parseInt(fileName1.substring(fileName1.indexOf('_frame_') + '_frame_'.length).split('.')[0]);
       const frameNumber2 = parseInt(fileName2.substring(fileName2.indexOf('_frame_') + '_frame_'.length).split('.')[0]);
-      return frameNumber1 - frameNumber2 < 20;
+      return Math.abs(frameNumber1 - frameNumber2) < 20;
     }
     return false;
   }
-
+    
   let fileNames = Object.keys(fileMap).sort((a, b) => a.localeCompare(b));
   let lastFileName = '';
   for (let i = 0; i < fileNames.length; i++) {
