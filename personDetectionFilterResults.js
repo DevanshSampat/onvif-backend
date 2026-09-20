@@ -79,7 +79,7 @@ async function checkScores() {
   }
 
   Object.keys(fileMap).forEach(key => {
-    if (fileMap[key] < 0.7) {
+    if (fileMap[key] < 0.75) {
       fs.unlinkSync(path.join(ALERTS_DIR, key));
       delete fileMap[key];
       console.log(`Deleted ${key}`);
@@ -97,7 +97,7 @@ async function checkScores() {
     }
     return false;
   }
-    
+
   let fileNames = Object.keys(fileMap).sort((a, b) => a.localeCompare(b));
   let lastFileName = '';
   for (let i = 0; i < fileNames.length; i++) {

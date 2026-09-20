@@ -68,7 +68,7 @@ function getAlertsList() {
           downloadUrl: `/api/alerts/download?id=${file}`,
         };
       })
-      .sort((a, b) => b.createdAt - a.createdAt);
+      .sort((a, b) => b.filename.localeCompare(a.filename));
   } catch (err) {
     console.error('[Alert Processor] Error listing alerts:', err.message);
     return [];
