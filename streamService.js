@@ -147,7 +147,7 @@ async function startHlsProcess(rtspUrl) {
         '-probesize 2000000',
       ])
       .outputOptions([
-        '-c:v h264_videotoolbox',  // Use macOS hardware acceleration for fast HEVC -> H264 transcoding
+        '-c:v h264_videotoolbox',  // macOS hardware acceleration for HEVC -> H264 transcoding
         '-b:v 2M',
         '-c:a aac',                 // Transcode audio to AAC for HLS audio playback
         '-b:a 128k',
@@ -198,7 +198,7 @@ async function startHlsProcess(rtspUrl) {
       }
     }, 500);
 
-    // Timeout fallback after 12 seconds
+    // Timeout fallback after 35 seconds (camera needs more headroom on cold boot)
     setTimeout(() => {
       clearInterval(checkInterval);
       if (!resolved) {
@@ -213,7 +213,7 @@ async function startHlsProcess(rtspUrl) {
           reject(new Error('Stream initialization timed out. Please check RTSP URL connection.'));
         }
       }
-    }, 12000);
+    }, 35000);
   });
 }
 
@@ -224,16 +224,29 @@ async function startStream(rtspUrl, options = {}) {
   await stopStream();
   resetHlsDirectory();
 
+  let targetUrl = rtspUrl;
+  if (options.channel !== undefined) {
+    if (options.channel === 1 || options.channel === '1') {
+      targetUrl = targetUrl.replace('/channel0', '/channel1').replace('channel=0', 'channel=1');
+    } else if (options.channel === 0 || options.channel === '0') {
+      targetUrl = targetUrl.replace('/channel1', '/channel0').replace('channel=1', 'channel=0');
+    }
+  }
+
   // Trigger 10-minute interval MP4 recording manager
-  recordingService.startRecordingLoop(rtspUrl).catch((err) => {
+  recordingService.startRecordingLoop(targetUrl).catch((err) => {
     console.error('Failed to start recording loop:', err.message);
   });
 
-  return await startHlsProcess(rtspUrl);
+  return await startHlsProcess(targetUrl);
 }
 
 function startSoftwareFallbackStream(rtspUrl, playlistPath, resolve, reject) {
   const fallbackCommand = ffmpeg(rtspUrl)
+    .inputOptions([
+      '-analyzeduration 2000000',
+      '-probesize 2000000',
+    ])
     .outputOptions([
       '-c:v libx264',
       '-preset ultrafast',

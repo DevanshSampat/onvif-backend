@@ -102,12 +102,20 @@ app.post('/api/connect', async (req, res) => {
 
 /**
  * Start streaming RTSP video (transcoding to HLS + 10-min interval recording)
+ * Accepts either a direct rtspUrl OR credentials to fetch a fresh URL inline.
  */
 app.post('/api/stream/start', async (req, res) => {
   try {
-    const { rtspUrl } = req.body;
+    let { rtspUrl, xaddr, user, pass } = req.body;
+
+    // If no rtspUrl but credentials provided, fetch a fresh RTSP URL right now
+    if (!rtspUrl && xaddr) {
+      console.log('[Stream Start] No rtspUrl provided; fetching fresh URL from ONVIF...');
+      rtspUrl = await onvifService.getFreshStreamUrl({ xaddr, user: user || '', pass: pass || '' });
+    }
+
     if (!rtspUrl) {
-      return res.status(400).json({ success: false, error: 'rtspUrl is required' });
+      return res.status(400).json({ success: false, error: 'rtspUrl or ONVIF credentials (xaddr, user, pass) are required' });
     }
 
     const streamResult = await streamService.startStream(rtspUrl);
@@ -265,12 +273,14 @@ app.listen(PORT, () => {
 
   if (fs.existsSync("credentials.json")) {
     const credentials = JSON.parse(fs.readFileSync("credentials.json"));
-    axios.post(`http://localhost:${PORT}/api/connect`, credentials)
-      .then((response) => {
-        axios.post(`http://localhost:${PORT}/api/stream/start`, { rtspUrl: response.data.data.streamUrl });
-      })
+    console.log('[Auto-Connect] Credentials found. Connecting to camera and starting stream...');
+    // Pass credentials directly to stream/start — it fetches a fresh RTSP URL
+    // right before spawning FFmpeg, so the session token never expires in transit.
+    axios.post(`http://localhost:${PORT}/api/stream/start`, credentials)
+      .then(() => console.log('[Auto-Connect] Stream started successfully.'))
       .catch((err) => {
-        console.error("Auto-connect failed:", err.message);
+        const errorMsg = err.response && err.response.data && err.response.data.error ? err.response.data.error : err.message;
+        console.error('[Auto-Connect] Auto stream start failed:', errorMsg);
       });
   }
 });

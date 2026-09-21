@@ -62,11 +62,18 @@ async function checkScores() {
       console.log(`Image: ${file}`);
       let score = 0;
       if (personDetections.length > 0) {
+        let width = 0;
+        let height = 0;
         personDetections.forEach((p, idx) => {
           console.log(`  └─ Person #${idx + 1}: Score = ${(p.score * 100).toFixed(2)}% (raw confidence: ${p.score.toFixed(4)})`);
           score += p.score;
+          width += p.bbox[2];
+          height += p.bbox[3];
         });
-        fileMap[file] = score / personDetections.length;
+        width = width / personDetections.length;
+        height = height / personDetections.length;
+        if(width < 350 || height < 500) fileMap[file] = 0;
+        else fileMap[file] = { score: score / personDetections.length, width: width / personDetections.length, height: height / personDetections.length };
       } else {
         const otherDetections = predictions.map((p) => `${p.class} (${(p.score * 100).toFixed(1)}%)`).join(', ');
         console.log(`  └─ No person detected. Other objects: [${otherDetections || 'none'}]`);
@@ -88,9 +95,9 @@ async function checkScores() {
 
   const checkIfFilesSavedInSameTimeRange = (fileName1, fileName2) => {
     if (!fileName1 || !fileName2) return false;
-    const range1 = fileName1.substring(0,fileName1.indexOf('_frame_'));
-    const range2 = fileName2.substring(0,fileName2.indexOf('_frame_'));
-    if(range1 === range2) {
+    const range1 = fileName1.substring(0, fileName1.indexOf('_frame_'));
+    const range2 = fileName2.substring(0, fileName2.indexOf('_frame_'));
+    if (range1 === range2) {
       const frameNumber1 = parseInt(fileName1.substring(fileName1.indexOf('_frame_') + '_frame_'.length).split('.')[0]);
       const frameNumber2 = parseInt(fileName2.substring(fileName2.indexOf('_frame_') + '_frame_'.length).split('.')[0]);
       return Math.abs(frameNumber1 - frameNumber2) < 20;
@@ -119,7 +126,7 @@ async function checkScores() {
 
   const dataToSave = {};
   fileNames = Object.keys(fileMap).sort((a, b) => a.localeCompare(b));
-  fileNames.forEach(key => {dataToSave[key] = fileMap[key]});
+  fileNames.forEach(key => { dataToSave[key] = fileMap[key] });
   fs.writeFileSync('person_detection_scores.json', JSON.stringify(dataToSave, null, 4));
   console.log(`\nFile list saved to person_detection_scores.json`);
 }

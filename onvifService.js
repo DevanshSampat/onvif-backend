@@ -26,6 +26,44 @@ async function discoverDevices(timeout = 3000) {
 }
 
 /**
+ * Build a clean TCP-compatible RTSP stream URL from the ONVIF device profiles.
+ * Injects credentials into the URL so FFmpeg can authenticate.
+ */
+function getRtspStreamUrlFromDevice(device, user, pass) {
+  const profiles = device.getProfileList();
+  if (!profiles || profiles.length === 0) {
+    throw new Error('No profiles available on device');
+  }
+
+  // Use the first profile's stream URI (highest quality, usually channel 0 / main stream)
+  const profile = profiles[0];
+
+  // Try accessing the stream URI from profile structure
+  let rtspUrl = null;
+  if (profile && profile.stream && profile.stream.rtsp) {
+    rtspUrl = profile.stream.rtsp;
+  } else if (profile && profile.StreamUri) {
+    rtspUrl = profile.StreamUri;
+  } else {
+    // Fallback: use getUdpStreamUrl and clean it
+    rtspUrl = device.getUdpStreamUrl();
+  }
+
+  if (!rtspUrl || !rtspUrl.startsWith('rtsp://')) {
+    throw new Error(`Invalid RTSP URL obtained: ${rtspUrl}`);
+  }
+
+  // Inject credentials if provided and not already embedded
+  if (user && pass && !rtspUrl.includes('@')) {
+    const encodedUser = encodeURIComponent(user);
+    const encodedPass = encodeURIComponent(pass);
+    rtspUrl = rtspUrl.replace('rtsp://', `rtsp://${encodedUser}:${encodedPass}@`);
+  }
+
+  return rtspUrl;
+}
+
+/**
  * Connect and authenticate with an ONVIF device
  */
 async function connectDevice({ xaddr, user = '', pass = '' }) {
@@ -51,19 +89,19 @@ async function connectDevice({ xaddr, user = '', pass = '' }) {
   const information = device.getInformation();
   const profiles = device.getProfileList();
   
-  // Get RTSP Stream URI
+  // Build a clean TCP-compatible RTSP URL from the device's profile
+  // Prefer getRtspStreamUrl() which strips UDP-specific hints;
+  // fall back to getUdpStreamUrl() and then strip the transport param.
   let streamUrl = '';
   try {
-    streamUrl = device.getUdpStreamUrl();
+    streamUrl = getRtspStreamUrlFromDevice(device, user, pass);
+    console.log('[ONVIF] Resolved RTSP stream URL (TCP-compatible).');
   } catch (e) {
-    console.log('Failed to get UDP stream url, fallback to profile:', e.message);
-  }
-
-  if (!streamUrl && profiles && profiles.length > 0) {
+    console.log('[ONVIF] Failed to build RTSP URL from profiles, falling back to UDP URL:', e.message);
     try {
-      streamUrl = await device.getStreamUrl();
-    } catch (e) {
-      console.log('Failed to get general stream url:', e.message);
+      streamUrl = device.getUdpStreamUrl();
+    } catch (e2) {
+      console.log('[ONVIF] getUdpStreamUrl also failed:', e2.message);
     }
   }
 
@@ -88,6 +126,48 @@ async function connectDevice({ xaddr, user = '', pass = '' }) {
     snapshotUrl,
   };
 }
+
+/**
+ * Re-fetch a fresh RTSP stream URL from the already-connected ONVIF device.
+ * Always injects credentials into the URL so FFmpeg can authenticate.
+ */
+async function getFreshStreamUrl({ xaddr, user = '', pass = '' }) {
+  const deviceKey = `${xaddr}-${user}`;
+  let device = connectedDevices.get(deviceKey);
+
+  if (!device) {
+    device = new onvif.OnvifDevice({ xaddr, user, pass });
+    await device.init();
+    connectedDevices.set(deviceKey, device);
+  }
+
+  let streamUrl = '';
+  try {
+    streamUrl = getRtspStreamUrlFromDevice(device, user, pass);
+    console.log('[ONVIF] Fresh RTSP stream URL obtained (with credentials).');
+  } catch (e) {
+    // Fallback: get raw URL and inject credentials manually
+    try {
+      streamUrl = device.getUdpStreamUrl();
+    } catch (e2) {
+      throw new Error('Could not resolve stream URL from device: ' + e2.message);
+    }
+    // Inject credentials if not already present
+    if (streamUrl && user && pass && !streamUrl.includes('@')) {
+      const encodedUser = encodeURIComponent(user);
+      const encodedPass = encodeURIComponent(pass);
+      streamUrl = streamUrl.replace('rtsp://', `rtsp://${encodedUser}:${encodedPass}@`);
+      console.log('[ONVIF] Injected credentials into fallback stream URL.');
+    }
+  }
+
+  if (!streamUrl) {
+    throw new Error('No stream URL could be resolved from the ONVIF device.');
+  }
+
+  return streamUrl;
+}
+
 
 /**
  * Execute PTZ commands (Pan, Tilt, Zoom)
@@ -197,6 +277,7 @@ async function fetchSnapshot({ snapshotUrl, user = '', pass = '' }) {
 module.exports = {
   discoverDevices,
   connectDevice,
+  getFreshStreamUrl,
   movePTZ,
   fetchSnapshot,
 };
