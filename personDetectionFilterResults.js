@@ -41,7 +41,7 @@ async function checkScores() {
   for (const file of files) {
     const filePath = path.join(ALERTS_DIR, file);
     if (scores[file]) {
-      console.log(`Already processed: ${file} with score ${scores[file]}`);
+      console.log(`Already processed: ${file} with score ${scores[file].score}`);
       fileMap[file] = scores[file];
       continue;
     }
@@ -74,12 +74,12 @@ async function checkScores() {
         });
         width = width / personDetections.length;
         height = height / personDetections.length;
-        if(width < 350 || height < 500) fileMap[file] = 0;
+        if (width < 350 || height < 500) fileMap[file] = 0;
         else fileMap[file] = { score: score / personDetections.length, width: width / personDetections.length, height: height / personDetections.length };
       } else {
         const otherDetections = predictions.map((p) => `${p.class} (${(p.score * 100).toFixed(1)}%)`).join(', ');
         console.log(`  └─ No person detected. Other objects: [${otherDetections || 'none'}]`);
-        fileMap[file] = 0;
+        fileMap[file] = { score: 0, width: 0, height: 0 };
       }
       console.log('----------------------------------------------------');
     } catch (err) {
@@ -88,7 +88,7 @@ async function checkScores() {
   }
 
   Object.keys(fileMap).forEach(key => {
-    if (fileMap[key] < 0.75) {
+    if (fileMap[key].score < 0.75) {
       fs.unlinkSync(path.join(ALERTS_DIR, key));
       delete fileMap[key];
       console.log(`Deleted ${key}`);
