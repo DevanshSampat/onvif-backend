@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const jpeg = require('jpeg-js');
 const tf = require('@tensorflow/tfjs');
+require('@tensorflow/tfjs-backend-wasm');
 const cocoSsd = require('@tensorflow-models/coco-ssd');
 
 const ALERTS_DIR = path.join(__dirname, 'human_detection_alerts');
@@ -16,7 +17,8 @@ async function checkScores() {
   console.log('====================================================');
   console.log('Human Detection Person Score Checker');
   console.log('====================================================');
-  console.log('Loading COCO-SSD AI model...');
+  console.log('Loading COCO-SSD AI model (WASM backend)...');
+  await tf.setBackend('wasm');
   const model = await cocoSsd.load();
   console.log('AI Model loaded successfully.\n');
 

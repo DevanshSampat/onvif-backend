@@ -20,6 +20,7 @@
   "dependencies": {
     "@tensorflow-models/coco-ssd": "^2.2.3",
     "@tensorflow/tfjs": "^4.22.0",
+    "@tensorflow/tfjs-backend-wasm": "^4.22.0",
     "axios": "^1.20.0",
     "cors": "^2.8.5",
     "express": "^4.19.2",

@@ -3,6 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const jpeg = require('jpeg-js');
 const tf = require('@tensorflow/tfjs');
+require('@tensorflow/tfjs-backend-wasm');
 const cocoSsd = require('@tensorflow-models/coco-ssd');
 
 const ALERTS_DIR = path.join(__dirname, 'human_detection_alerts');
@@ -46,7 +47,8 @@ function setLastProcessedFilename(filename) {
 
 async function loadModel() {
   if (!model) {
-    console.log('[Alert Worker Process] Loading COCO-SSD AI model in isolated process...');
+    console.log('[Alert Worker Process] Loading COCO-SSD AI model with WASM backend in isolated process...');
+    await tf.setBackend('wasm');
     model = await cocoSsd.load();
     console.log('[Alert Worker Process] COCO-SSD AI model loaded successfully.');
   }
