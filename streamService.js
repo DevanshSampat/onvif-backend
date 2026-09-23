@@ -5,6 +5,12 @@ const recordingService = require('./recordingService');
 
 let activeFfmpegCommand = null;
 let currentStreamInfo = null;
+let currentActiveRtspUrl = null;
+let isIntentionallyStopped = false;
+let watchdogInterval = null;
+let watchdogStartTimer = null;
+let lastMtime = 0;
+let stallCount = 0;
 
 const HLS_DIR = path.join(__dirname, 'public', 'hls');
 const TEMP_DIR = path.join(__dirname, 'temp');
@@ -40,10 +46,91 @@ function resetHlsDirectory() {
 }
 
 /**
+ * Stop playlist watchdog monitor
+ */
+function stopWatchdog() {
+  if (watchdogStartTimer) {
+    clearTimeout(watchdogStartTimer);
+    watchdogStartTimer = null;
+  }
+  if (watchdogInterval) {
+    clearInterval(watchdogInterval);
+    watchdogInterval = null;
+  }
+  stallCount = 0;
+  lastMtime = 0;
+}
+
+/**
+ * Start 2-second heartbeat watchdog after a 60s warmup delay
+ */
+function startWatchdog(playlistPath) {
+  stopWatchdog();
+  console.log('[HLS Watchdog] Watchdog scheduler initialized; monitoring will activate in 60 seconds...');
+
+  watchdogStartTimer = setTimeout(() => {
+    if (isIntentionallyStopped || !activeFfmpegCommand) return;
+
+    console.log('[HLS Watchdog] Warmup period elapsed. Active m3u8 heartbeat monitoring started.');
+    lastMtime = fs.existsSync(playlistPath) ? fs.statSync(playlistPath).mtimeMs : 0;
+    stallCount = 0;
+
+    watchdogInterval = setInterval(() => {
+      if (isIntentionallyStopped || !activeFfmpegCommand) return;
+
+      if (!fs.existsSync(playlistPath)) {
+        stallCount++;
+      } else {
+        try {
+          const mtime = fs.statSync(playlistPath).mtimeMs;
+          if (mtime === lastMtime) {
+            stallCount++;
+          } else {
+            lastMtime = mtime;
+            stallCount = 0;
+          }
+        } catch (e) {
+          stallCount++;
+        }
+      }
+
+      if (stallCount >= 15) {
+        console.error(`[HLS Watchdog] ALERT: stream.m3u8 has NOT updated in ${stallCount * 2}s (Stream Stalled/Frozen)! Restarting FFmpeg stream...`);
+        stallCount = 0;
+        autoRestartStream();
+      }
+    }, 2000);
+  }, 60000);
+}
+
+/**
+ * Automatically attempt restarting stream on failure or stall
+ */
+async function autoRestartStream() {
+  if (isIntentionallyStopped || !currentActiveRtspUrl) return;
+  console.log('[HLS Watchdog] Attempting automatic stream recovery...');
+  try {
+    await killHlsProcessOnly();
+    const playlistPath = path.join(HLS_DIR, 'stream.m3u8');
+    const primaryEncoder = getPrimaryVideoEncoder();
+    await runHlsStreamWithEncoder(currentActiveRtspUrl, playlistPath, primaryEncoder, true);
+    console.log('[HLS Watchdog] Stream successfully auto-restarted!');
+  } catch (err) {
+    console.error('[HLS Watchdog] Auto-restart attempt failed:', err.message);
+    setTimeout(() => {
+      if (!isIntentionallyStopped && !activeFfmpegCommand) {
+        autoRestartStream();
+      }
+    }, 5000);
+  }
+}
+
+/**
  * Forcefully terminate active HLS FFmpeg process
  */
 function killHlsProcessOnly() {
   return new Promise((resolve) => {
+    stopWatchdog();
     if (activeFfmpegCommand) {
       console.log('[HLS] Forcefully terminating active FFmpeg HLS process...');
       try {
@@ -62,6 +149,9 @@ function killHlsProcessOnly() {
  * Stop active HLS process & recording loop
  */
 async function stopStream() {
+  isIntentionallyStopped = true;
+  stopWatchdog();
+  currentActiveRtspUrl = null;
   if (chunkPurgeInterval) {
     clearInterval(chunkPurgeInterval);
     chunkPurgeInterval = null;
@@ -291,6 +381,9 @@ function runHlsStreamWithEncoder(rtspUrl, playlistPath, encoder, canFallback = t
     // FFmpeg options: hls_list_size 5 makes the livestream unseekable (real-time edge window)
     const command = ffmpeg(rtspUrl)
       .inputOptions([
+        '-rtsp_transport udp',
+        '-timeout 5000000',
+        '-reorder_queue_size 0',
         '-analyzeduration 2000000',
         '-probesize 2000000',
       ])
@@ -305,6 +398,8 @@ function runHlsStreamWithEncoder(rtspUrl, playlistPath, encoder, canFallback = t
       ])
       .output(playlistPath);
 
+    const lastStderrLines = [];
+
     command.on('start', (cmdline) => {
       console.log(`[HLS] FFmpeg HLS process started (${encoder.name}).`);
       currentStreamInfo = {
@@ -313,6 +408,32 @@ function runHlsStreamWithEncoder(rtspUrl, playlistPath, encoder, canFallback = t
         playlistUrl: '/hls/stream.m3u8',
         encoder: encoder.name,
       };
+      startWatchdog(playlistPath);
+    });
+
+    command.on('stderr', (stderrLine) => {
+      lastStderrLines.push(stderrLine);
+      if (lastStderrLines.length > 15) {
+        lastStderrLines.shift();
+      }
+      if (stderrLine.includes('error') || stderrLine.includes('Failed') || stderrLine.includes('timeout') || stderrLine.includes('Server returned') || stderrLine.includes('Connection refused')) {
+        console.warn(`[FFmpeg stderr] ${stderrLine}`);
+      }
+    });
+
+    command.on('end', () => {
+      console.log('[HLS] FFmpeg process ended/closed.');
+      if (lastStderrLines.length > 0) {
+        console.warn(`[FFmpeg Last Log Lines before exit]:\n${lastStderrLines.slice(-5).join('\n')}`);
+      }
+      if (activeFfmpegCommand === command) {
+        activeFfmpegCommand = null;
+        currentStreamInfo = null;
+      }
+      if (!isIntentionallyStopped && currentActiveRtspUrl) {
+        console.log('[HLS Auto-Reconnect] FFmpeg exited unexpectedly, attempting auto-restart...');
+        autoRestartStream();
+      }
     });
 
     command.on('error', (err) => {
@@ -350,6 +471,10 @@ function runHlsStreamWithEncoder(rtspUrl, playlistPath, encoder, canFallback = t
         if (activeFfmpegCommand === command) {
           activeFfmpegCommand = null;
           currentStreamInfo = null;
+        }
+        if (!isIntentionallyStopped && currentActiveRtspUrl) {
+          console.log('[HLS Auto-Reconnect] FFmpeg process error, attempting auto-restart...');
+          autoRestartStream();
         }
       }
     });
@@ -410,6 +535,7 @@ async function startHlsProcess(rtspUrl) {
  */
 async function startStream(rtspUrl, options = {}) {
   await stopStream();
+  isIntentionallyStopped = false;
   resetHlsDirectory();
   resetTrackedSegmentIndex();
 
@@ -421,6 +547,8 @@ async function startStream(rtspUrl, options = {}) {
       targetUrl = targetUrl.replace('/channel1', '/channel0').replace('channel=1', 'channel=0');
     }
   }
+
+  currentActiveRtspUrl = targetUrl;
 
   // Trigger 10-minute interval MP4 recording manager
   recordingService.startRecordingLoop(targetUrl).catch((err) => {
