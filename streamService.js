@@ -357,6 +357,26 @@ function getPrimaryVideoEncoder() {
 }
 
 /**
+ * Calculate the next segment start number based on existing stream files in public/hls
+ */
+function getNextStartNumber() {
+  ensureHlsDirectory();
+  try {
+    const files = fs.readdirSync(HLS_DIR);
+    let maxIdx = -1;
+    for (const file of files) {
+      const idx = getSegmentIndexFromFilename(file);
+      if (idx !== null && idx > maxIdx) {
+        maxIdx = idx;
+      }
+    }
+    return maxIdx >= 0 ? maxIdx + 1 : 0;
+  } catch (e) {
+    return 0;
+  }
+}
+
+/**
  * Spawn and monitor an FFmpeg HLS transcoding process
  */
 function runHlsStreamWithEncoder(rtspUrl, playlistPath, encoder, canFallback = true) {
@@ -376,7 +396,8 @@ function runHlsStreamWithEncoder(rtspUrl, playlistPath, encoder, canFallback = t
       }
     };
 
-    console.log(`[HLS] Spawning FFmpeg with encoder: ${encoder.name}...`);
+    const startNumber = getNextStartNumber();
+    console.log(`[HLS] Spawning FFmpeg with encoder: ${encoder.name} (start_number: ${startNumber})...`);
 
     // FFmpeg options: hls_list_size 5 makes the livestream unseekable (real-time edge window)
     const command = ffmpeg(rtspUrl)
@@ -394,7 +415,7 @@ function runHlsStreamWithEncoder(rtspUrl, playlistPath, encoder, canFallback = t
         '-hls_time 1',
         '-hls_list_size 5',
         '-hls_flags omit_endlist+discont_start',
-        '-start_number 0',
+        `-start_number ${startNumber}`,
       ])
       .output(playlistPath);
 
