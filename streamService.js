@@ -62,6 +62,10 @@ function killHlsProcessOnly() {
  * Stop active HLS process & recording loop
  */
 async function stopStream() {
+  if (chunkPurgeInterval) {
+    clearInterval(chunkPurgeInterval);
+    chunkPurgeInterval = null;
+  }
   await recordingService.stopRecordingLoop();
 
   // If stopping active stream, slice remaining segment range into temp before killing process
@@ -85,12 +89,62 @@ function formatSegmentTimestamp(date) {
 }
 
 let lastTrackedSegmentIndex = 0;
+let lastProcessedSegmentIndex = 0;
+let chunkPurgeInterval = null;
 
 /**
  * Get current active stream segment index range and reset/set initial index
  */
 function resetTrackedSegmentIndex() {
   lastTrackedSegmentIndex = 0;
+  lastProcessedSegmentIndex = 0;
+  startChunkPurgeWatcher();
+}
+
+/**
+ * Continuously purge old segments from public/hls as soon as there are > 5 newer chunks available
+ */
+function purgeProcessedSegments() {
+  if (!fs.existsSync(HLS_DIR)) return;
+
+  try {
+    const files = fs.readdirSync(HLS_DIR);
+    const tsFiles = [];
+
+    for (const file of files) {
+      const idx = getSegmentIndexFromFilename(file);
+      if (idx !== null) {
+        tsFiles.push({ filename: file, index: idx });
+      }
+    }
+
+    if (tsFiles.length <= 5) return;
+
+    // Sort by segment index ascending
+    tsFiles.sort((a, b) => a.index - b.index);
+    const newestIndex = tsFiles[tsFiles.length - 1].index;
+    const safeDeleteMaxIndex = newestIndex - 5;
+
+    // Delete processed segments that are below or equal to lastProcessedSegmentIndex AND <= safeDeleteMaxIndex
+    for (const seg of tsFiles) {
+      if (seg.index <= lastProcessedSegmentIndex && seg.index <= safeDeleteMaxIndex) {
+        const filePath = path.join(HLS_DIR, seg.filename);
+        try {
+          fs.unlinkSync(filePath);
+        } catch (e) {}
+      }
+    }
+  } catch (err) {
+    // Silent catch for directory access during stream start/stop
+  }
+}
+
+/**
+ * Start 2-second interval background watcher to purge processed chunks dynamically as new ones arrive
+ */
+function startChunkPurgeWatcher() {
+  if (chunkPurgeInterval) clearInterval(chunkPurgeInterval);
+  chunkPurgeInterval = setInterval(purgeProcessedSegments, 2000);
 }
 
 /**
@@ -172,9 +226,14 @@ function sliceSegmentRangeToTemp() {
   playlistLines.push('#EXT-X-ENDLIST');
   fs.writeFileSync(tempPlaylistPath, playlistLines.join('\n'));
 
-  // Update last tracked index for the next 10-minute slice
+  // Mark all segments in this batch as processed and update last tracked segment index
+  lastProcessedSegmentIndex = newestIndex;
   lastTrackedSegmentIndex = newestIndex + 1;
-  console.log(`[HLS Slice] Updated lastTrackedSegmentIndex to ${lastTrackedSegmentIndex}`);
+
+  // Immediately run purge check
+  purgeProcessedSegments();
+
+  console.log(`[HLS Slice] Marked segments up to stream${newestIndex}.ts as processed. Purging as >5 new chunks arrive.`);
 
   return tempHlsDir;
 }
@@ -229,7 +288,7 @@ function runHlsStreamWithEncoder(rtspUrl, playlistPath, encoder, canFallback = t
 
     console.log(`[HLS] Spawning FFmpeg with encoder: ${encoder.name}...`);
 
-    // FFmpeg options: event playlist type preserves all segments for the full 10-min block
+    // FFmpeg options: hls_list_size 5 makes the livestream unseekable (real-time edge window)
     const command = ffmpeg(rtspUrl)
       .inputOptions([
         '-analyzeduration 2000000',
@@ -240,9 +299,8 @@ function runHlsStreamWithEncoder(rtspUrl, playlistPath, encoder, canFallback = t
         '-c:a aac',
         '-b:a 128k',
         '-hls_time 1',
-        '-hls_list_size 0',
+        '-hls_list_size 5',
         '-hls_flags omit_endlist+discont_start',
-        '-hls_playlist_type event',
         '-start_number 0',
       ])
       .output(playlistPath);
