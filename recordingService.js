@@ -33,7 +33,7 @@ function formatSegmentTimestamp(date) {
   const dd = pad(date.getDate());
   const hh = pad(date.getHours());
   const min = pad(date.getMinutes());
-  return `${yyyy}-${mm}-${dd}_${hh}:${min}`;
+  return `${yyyy}-${mm}-${dd}_${hh}-${min}`;
 }
 
 /**
@@ -270,15 +270,15 @@ async function rotateNextSegment() {
   console.log(`[Recorder] 10-minute boundary reached.`);
   console.log(`[Recorder] Completed segment: ${completedSlotName}. Next segment (${currentSlotName}) aligned to boundary in ${secondsToNext}s`);
 
-  // 1. Force-stop HLS stream, snapshot current HLS directory to temp folder, & start fresh HLS stream
+  // 1. Slice current TS segment index range to temp directory without interrupting active HLS FFmpeg process
   try {
-    const tempHlsDir = await streamService.archiveHlsToTempAndRestart(currentRtspUrl);
+    const tempHlsDir = streamService.sliceSegmentRangeToTemp();
     if (tempHlsDir) {
-      // 2. Process archived HLS directory into single MP4 file named after COMPLETED slot (e.g. 01:40)
+      // 2. Process sliced HLS directory into single MP4 file named after COMPLETED slot (e.g. 01:40)
       convertHlsToMp4(tempHlsDir, completedSlotName);
     }
   } catch (err) {
-    console.error('[Recorder] Error archiving HLS on rotation:', err.message);
+    console.error('[Recorder] Error slicing HLS segment range on rotation:', err.message);
   }
 
   // 3. Schedule next boundary rotation dynamically to prevent clock drift
