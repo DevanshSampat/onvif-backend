@@ -109,7 +109,7 @@ async function checkScores() {
   let lastFileName = '';
   for (let i = 0; i < fileNames.length; i++) {
     if (checkIfFilesSavedInSameTimeRange(lastFileName, fileNames[i])) {
-      if (fileMap[fileNames[i]] > fileMap[lastFileName]) {
+      if (fileMap[fileNames[i]].score > fileMap[lastFileName].score) {
         fs.unlinkSync(path.join(ALERTS_DIR, lastFileName));
         delete fileMap[lastFileName];
         console.log(`Deleted ${lastFileName}`);
