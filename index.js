@@ -105,6 +105,9 @@ app.post('/api/connect', async (req, res) => {
  * Accepts either a direct rtspUrl OR credentials to fetch a fresh URL inline.
  */
 app.post('/api/stream/start', async (req, res) => {
+  if(fs.existsSync('public/hls/stream.m3u8')){
+    return res.status(400).json({ success: false, error: 'Stream is already running' });
+  }
   try {
     let { rtspUrl, xaddr, user, pass } = req.body;
 

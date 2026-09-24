@@ -41,7 +41,6 @@ async function checkScores() {
   for (const file of files) {
     const filePath = path.join(ALERTS_DIR, file);
     if (scores[file]) {
-      console.log(`Already processed: ${file} with score ${scores[file].score}`);
       fileMap[file] = scores[file];
       continue;
     }
@@ -88,7 +87,7 @@ async function checkScores() {
   }
 
   Object.keys(fileMap).forEach(key => {
-    if (fileMap[key].score < 0.75) {
+    if (fileMap[key].score < 0.7) {
       fs.unlinkSync(path.join(ALERTS_DIR, key));
       delete fileMap[key];
       console.log(`Deleted ${key}`);
