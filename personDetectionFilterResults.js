@@ -74,7 +74,7 @@ async function checkScores() {
         });
         width = width / personDetections.length;
         height = height / personDetections.length;
-        if (width < 350 || height < 500) fileMap[file] = 0;
+        if (width < 350 || height < 500) fileMap[file] = { score: 0, width: 0, height: 0 };
         else fileMap[file] = { score: score / personDetections.length, width: width / personDetections.length, height: height / personDetections.length };
       } else {
         const otherDetections = predictions.map((p) => `${p.class} (${(p.score * 100).toFixed(1)}%)`).join(', ');
