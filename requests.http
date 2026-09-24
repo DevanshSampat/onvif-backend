@@ -1,0 +1,82 @@
+### ONVIF CCTV Backend API Requests
+@baseUrl = http://localhost:5001
+
+### 1. Root / Server Info
+GET {{baseUrl}}/
+Accept: application/json
+
+### 2. Health Check & Stream Status
+GET {{baseUrl}}/api/health
+Accept: application/json
+
+### 3. Discover ONVIF Devices on Network
+GET {{baseUrl}}/api/discover
+Accept: application/json
+
+### 4. Connect to ONVIF Device
+POST {{baseUrl}}/api/connect
+Content-Type: application/json
+
+{
+  "xaddr": "http://192.168.1.100:80/onvif/device_service",
+  "user": "admin",
+  "pass": "password123"
+}
+
+### 5. Start RTSP Stream (using ONVIF credentials)
+POST {{baseUrl}}/api/stream/start
+Content-Type: application/json
+
+{
+  "xaddr": "http://192.168.1.100:80/onvif/device_service",
+  "user": "admin",
+  "pass": "password123"
+}
+
+### 6. Start RTSP Stream (using direct RTSP URL)
+POST {{baseUrl}}/api/stream/start
+Content-Type: application/json
+
+{
+  "rtspUrl": "rtsp://admin:password123@192.168.1.100:554/stream1"
+}
+
+### 7. Stop Stream & Recording
+POST {{baseUrl}}/api/stream/stop
+Content-Type: application/json
+
+### 8. List Recordings
+GET {{baseUrl}}/api/recordings
+Accept: application/json
+
+### 9. Download Recording File
+# Replace filename value with actual recording filename returned by /api/recordings
+GET {{baseUrl}}/api/recordings/download?id=recording_example.mp4
+
+### 10. Stream Recording for Video Player
+# Replace filename value with actual recording filename
+GET {{baseUrl}}/api/recordings/stream?id=recording_example.mp4
+
+### 11. List Detection Alerts
+GET {{baseUrl}}/api/alerts
+Accept: application/json
+
+### 12. Download Alert Image
+# Replace filename value with actual alert filename returned by /api/alerts
+GET {{baseUrl}}/api/alerts/download?id=alert_example.jpg
+
+### 13. PTZ Control Movement
+# Actions: up, down, left, right, zoomIn, zoomOut, stop
+POST {{baseUrl}}/api/ptz/move
+Content-Type: application/json
+
+{
+  "xaddr": "http://192.168.1.100:80/onvif/device_service",
+  "user": "admin",
+  "pass": "password123",
+  "action": "up",
+  "speed": 0.5
+}
+
+### 14. Proxy Snapshot Image
+GET {{baseUrl}}/api/snapshot?snapshotUrl=http%3A%2F%2F192.168.1.100%2Fonvif%2Fsnapshot.jpg&user=admin&pass=password123
