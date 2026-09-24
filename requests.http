@@ -1,5 +1,5 @@
-### ONVIF CCTV Backend API Requests
 @baseUrl = http://localhost:5001
+### ONVIF CCTV Backend API Requests
 
 ### 1. Root / Server Info
 GET {{baseUrl}}/
@@ -18,7 +18,7 @@ POST {{baseUrl}}/api/connect
 Content-Type: application/json
 
 {
-  "xaddr": "http://192.168.1.100:80/onvif/device_service",
+  "xaddr": "http://192.168.29.102:8000/onvif/device_service",
   "user": "admin",
   "pass": "password123"
 }
