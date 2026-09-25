@@ -297,7 +297,7 @@ function sliceSegmentRangeToTemp() {
   const playlistLines = [
     '#EXTM3U',
     '#EXT-X-VERSION:3',
-    '#EXT-X-TARGETDURATION:2',
+    '#EXT-X-TARGETDURATION:15',
     '#EXT-X-MEDIA-SEQUENCE:0',
   ];
 
@@ -306,7 +306,7 @@ function sliceSegmentRangeToTemp() {
     const destFile = path.join(tempHlsDir, seg.filename);
     try {
       fs.copyFileSync(srcFile, destFile);
-      playlistLines.push('#EXTINF:1.000000,');
+      playlistLines.push('#EXTINF:12.000000,');
       playlistLines.push(seg.filename);
     } catch (e) {
       console.error(`[HLS Slice] Failed to copy segment ${seg.filename}:`, e.message);
@@ -412,7 +412,8 @@ function runHlsStreamWithEncoder(rtspUrl, playlistPath, encoder, canFallback = t
         ...encoder.options,
         '-c:a aac',
         '-b:a 128k',
-        '-hls_time 1',
+        '-force_key_frames', 'expr:gte(t,n_forced*12)',
+        '-hls_time 12',
         '-hls_list_size 5',
         '-hls_flags omit_endlist+discont_start',
         `-start_number ${startNumber}`,
