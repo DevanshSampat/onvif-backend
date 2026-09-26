@@ -13,6 +13,27 @@ if (fs.existsSync('person_detection_scores.json')) {
   scores = JSON.parse(fs.readFileSync('person_detection_scores.json'));
 }
 
+function isImageDistorted(rawImageData) {
+  const w = rawImageData.width;
+  const h = rawImageData.height;
+  const data = rawImageData.data;
+
+  let noisyRowsCount = 0;
+  for (let y = 0; y < h; y++) {
+    let diff = 0;
+    for (let x = 0; x < w - 1; x++) {
+      const idx = (y * w + x) * 3;
+      diff += Math.abs(data[idx] - data[idx + 3]) + Math.abs(data[idx + 1] - data[idx + 4]) + Math.abs(data[idx + 2] - data[idx + 5]);
+    }
+    if ((diff / w) > 45) {
+      noisyRowsCount++;
+    }
+  }
+
+  // Distorted if over 5% of total image height contains corrupt macroblock noise bands
+  return (noisyRowsCount / h) > 0.05;
+}
+
 async function checkScores() {
   console.log('====================================================');
   console.log('Human Detection Person Score Checker');
@@ -40,13 +61,20 @@ async function checkScores() {
 
   for (const file of files) {
     const filePath = path.join(ALERTS_DIR, file);
-    if (scores[file]) {
-      fileMap[file] = scores[file];
-      continue;
-    }
     try {
       const jpegBuffer = fs.readFileSync(filePath);
       const rawImageData = jpeg.decode(jpegBuffer, { useTtf: false, formatAsRGBA: false });
+
+      if (isImageDistorted(rawImageData)) {
+        console.log(`Image ${file} is distorted (stream artifact/noise detected). Filtering out.`);
+        fileMap[file] = { score: 0, width: 0, height: 0 };
+        continue;
+      }
+
+      if (scores[file]) {
+        fileMap[file] = scores[file];
+        continue;
+      }
 
       const numChannels = 3;
       const values = new Int32Array(rawImageData.width * rawImageData.height * numChannels);
