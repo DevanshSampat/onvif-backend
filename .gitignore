@@ -27,6 +27,7 @@ Thumbs.db
 
 # credentials
 credentials.json
+userToken.json
 
 # recordings
 recordings

@@ -1,3 +1,4 @@
+require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
@@ -21,24 +22,6 @@ streamService.resetHlsDirectory();
 recordingService.processExistingTempBatches();
 detectionService.startAlertWorker();
 
-// Periodically run personDetectionFilterResults.js every 5 minutes in a non-blocking child process
-function schedulePersonDetectionFilter() {
-  const filterScript = path.join(__dirname, 'personDetectionFilterResults.js');
-
-  const runFilterProcess = () => {
-    console.log('[Scheduled Task] Running personDetectionFilterResults.js...');
-    const child = fork(filterScript, [], { stdio: 'inherit' });
-    child.on('exit', (code) => {
-      console.log(`[Scheduled Task] personDetectionFilterResults.js completed (exit code ${code}).`);
-    });
-  };
-
-  // Run initial filter after 10 seconds, then repeat every 5 minutes (300,000 ms)
-  setTimeout(runFilterProcess, 10000);
-  setInterval(runFilterProcess, 5 * 60 * 1000);
-}
-
-schedulePersonDetectionFilter();
 app.use('/hls', express.static(path.join(__dirname, 'public', 'hls'), {
   setHeaders: (res, filePath) => {
     if (filePath.endsWith('.m3u8')) {
@@ -273,7 +256,10 @@ app.listen(PORT, () => {
   console.log(`ONVIF CCTV Backend Server running on http://localhost:${PORT}`);
   console.log(`HLS Stream path: http://localhost:${PORT}/hls/stream.m3u8`);
   console.log(`=================================`);
+  connectDeviceAndStartStream();
+});
 
+const connectDeviceAndStartStream = () => {
   if (fs.existsSync("credentials.json")) {
     const credentials = JSON.parse(fs.readFileSync("credentials.json"));
     console.log('[Auto-Connect] Credentials found. Connecting to camera and starting stream...');
@@ -284,6 +270,7 @@ app.listen(PORT, () => {
       .catch((err) => {
         const errorMsg = err.response && err.response.data && err.response.data.error ? err.response.data.error : err.message;
         console.error('[Auto-Connect] Auto stream start failed:', errorMsg);
+        setTimeout(() => connectDeviceAndStartStream(), 5000);
       });
   }
-});
+}
