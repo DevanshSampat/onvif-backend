@@ -5,7 +5,7 @@ const fs = require('fs');
 
 const USER_TOKEN_FILE = path.join(__dirname, 'userToken.json');
 const FCM_ALERT_URL = 'https://streamvilla-fcm.onrender.com/camera-alert';
-const FIREBASE_API_KEY = process.env.FIREBASE_API_KEY || 'AIzaSyBdH_2dQ6RoLPuvsQBGV0NyIUCg8GqmjXY';
+const FIREBASE_API_KEY = process.env.FIREBASE_API_KEY;
 const REFRESH_TOKEN_URL = `https://securetoken.googleapis.com/v1/token?key=${FIREBASE_API_KEY}`;
 
 function loadUserTokens() {
