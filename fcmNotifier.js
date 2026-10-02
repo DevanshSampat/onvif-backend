@@ -5,6 +5,7 @@ const fs = require('fs');
 
 const USER_TOKEN_FILE = path.join(__dirname, 'userToken.json');
 const FCM_ALERT_URL = 'https://streamvilla-fcm.onrender.com/camera-alert';
+const FCM_RESUME_URL = 'https://streamvilla-fcm.onrender.com/camera-alert/resume-tv';
 const FIREBASE_API_KEY = process.env.FIREBASE_API_KEY;
 const REFRESH_TOKEN_URL = `https://securetoken.googleapis.com/v1/token?key=${FIREBASE_API_KEY}`;
 
@@ -50,6 +51,41 @@ async function refreshAccessToken() {
   return tokens.token;
 }
 
+async function sendResumeTVPlaybackNotification() {
+  const tokens = loadUserTokens();
+  const postResume = async (bearerToken) => {
+    return await axios.get(
+      FCM_RESUME_URL,
+      {
+        headers: {
+          Authorization: `Bearer ${bearerToken}`,
+          'Content-Type': 'application/json',
+        },
+      }
+    );
+  };
+  try {
+    console.log(`[FCM Notifier] Sending resume TV playback notification`);
+    await postResume(tokens.token);
+    console.log(`[FCM Notifier] Resume TV playback notification successfully sent`);
+  } catch (err) {
+    if (err.response && err.response.status === 401) {
+      console.warn('[FCM Notifier] 401 Unauthorized received. Refreshing token and retrying...');
+      try {
+        const newToken = await refreshAccessToken();
+        await postResume(newToken);
+        console.log(`[FCM Notifier] Resume TV playback notification successfully sent after token refresh for ${bssid}`);
+      } catch (refreshErr) {
+        console.error('[FCM Notifier] Retry after token refresh failed:', refreshErr.response?.data || refreshErr.message);
+        throw refreshErr;
+      }
+    } else {
+      console.error('[FCM Notifier] Failed to send resume TV playback notification:', err.response?.data || err.message);
+      throw err;
+    }
+  }
+}
+
 async function sendCameraAlertNotification(fileName) {
   let tokens = loadUserTokens();
 
@@ -62,9 +98,11 @@ async function sendCameraAlertNotification(fileName) {
   }
 
   const postAlert = async (bearerToken) => {
+    const credentials = JSON.parse(fs.readFileSync('credentials.json', 'utf8'));
+    const deviceName = credentials.device;
     return await axios.post(
       FCM_ALERT_URL,
-      { fileName },
+      { fileName, deviceName },
       {
         headers: {
           Authorization: `Bearer ${bearerToken}`,
@@ -98,6 +136,7 @@ async function sendCameraAlertNotification(fileName) {
 
 module.exports = {
   sendCameraAlertNotification,
+  sendResumeTVPlaybackNotification,
   refreshAccessToken,
   loadUserTokens,
 };

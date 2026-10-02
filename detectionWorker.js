@@ -5,11 +5,12 @@ const jpeg = require('jpeg-js');
 const tf = require('@tensorflow/tfjs');
 require('@tensorflow/tfjs-backend-wasm');
 const cocoSsd = require('@tensorflow-models/coco-ssd');
-const { sendCameraAlertNotification } = require('./fcmNotifier');
+const { sendCameraAlertNotification, sendResumeTVPlaybackNotification } = require('./fcmNotifier');
 
 const ALERTS_DIR = path.join(__dirname, 'human_detection_alerts');
 const ALERTS_PROCESSING_DIR = path.join(__dirname, 'alerts_processing');
 const HLS_DIR = path.join(__dirname, 'public', 'hls');
+let isAlertSent = false;
 
 const ONE_MINUTE_MS = 60 * 1000;
 
@@ -131,7 +132,7 @@ function clearProcessingDir() {
     for (const file of files) {
       try {
         fs.unlinkSync(path.join(ALERTS_PROCESSING_DIR, file));
-      } catch (e) {}
+      } catch (e) { }
     }
   }
 }
@@ -187,12 +188,19 @@ async function processTsFile(tsFilename) {
           lastPersonDetectionTimestamp = now;
 
           // Send FCM camera alert API request
-          sendCameraAlertNotification(alertFilename).catch((err) => {
+          sendCameraAlertNotification(alertFilename).then(() => { isAlertSent = true; }).catch((err) => {
             console.error('[Alert Worker Process] Error sending camera alert notification:', err.message);
           });
         } else {
           console.log(`[Alert Worker Process] Person detected in ${tsFilename} (${frameFile}), but rate-limited (< 1 min since last alert). Updating timestamp silently.`);
           lastPersonDetectionTimestamp = now;
+        }
+      } else {
+        if (isAlertSent && lastPersonDetectionTimestamp < Date.now() - ONE_MINUTE_MS) {
+          isAlertSent = false;
+          sendResumeTVPlaybackNotification().catch((err) => {
+            console.error('[Alert Worker Process] Error sending resume TV playback notification:', err.message);
+          });
         }
       }
     }

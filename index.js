@@ -72,11 +72,13 @@ app.post('/api/connect', async (req, res) => {
       return res.status(400).json({ success: false, error: 'xaddr is required' });
     }
     const deviceInfo = await onvifService.connectDevice({ xaddr, user, pass });
+    console.log(`[ONVIF] Connected to ${deviceInfo.information.Model}`)
     res.json({ success: true, data: deviceInfo });
     fs.writeFileSync("credentials.json", JSON.stringify({
       xaddr,
       user,
-      pass
+      pass,
+      device: deviceInfo.information.Model
     }, null, 4));
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
