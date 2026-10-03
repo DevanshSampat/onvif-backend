@@ -74,7 +74,7 @@ async function sendResumeTVPlaybackNotification() {
       try {
         const newToken = await refreshAccessToken();
         await postResume(newToken);
-        console.log(`[FCM Notifier] Resume TV playback notification successfully sent after token refresh for ${bssid}`);
+        console.log(`[FCM Notifier] Resume TV playback notification successfully sent after token refresh`);
       } catch (refreshErr) {
         console.error('[FCM Notifier] Retry after token refresh failed:', refreshErr.response?.data || refreshErr.message);
         throw refreshErr;
