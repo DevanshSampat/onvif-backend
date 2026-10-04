@@ -412,9 +412,9 @@ function runHlsStreamWithEncoder(rtspUrl, playlistPath, encoder, canFallback = t
         ...encoder.options,
         '-c:a aac',
         '-b:a 128k',
-        '-force_key_frames', 'expr:gte(t,n_forced*12)',
-        '-hls_time 12',
-        '-hls_list_size 5',
+        '-force_key_frames', 'expr:gte(t,n_forced*5)',
+        '-hls_time 5',
+        '-hls_list_size 12',
         '-hls_flags omit_endlist+discont_start',
         `-start_number ${startNumber}`,
       ])

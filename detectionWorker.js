@@ -224,7 +224,7 @@ async function runWorkerLoop() {
   while (true) {
     try {
       if (!fs.existsSync(HLS_DIR)) {
-        await sleep(5000);
+        await sleep(3000);
         continue;
       }
 
@@ -245,7 +245,7 @@ async function runWorkerLoop() {
           console.log(`[Alert Worker Process] Initial directory scan completed. Starting from segment index stream${lastProcessedTsIndex + 1}.ts`);
         } else {
           // No TS files found yet, wait for next cycle
-          await sleep(5000);
+          await sleep(3000);
           continue;
         }
       }
