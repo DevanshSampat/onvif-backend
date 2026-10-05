@@ -22,7 +22,7 @@ Content-Type: application/json
 {
   "xaddr": "http://192.168.29.102:8000/onvif/device_service",
   "user": "admin",
-  "pass": "devs3100"
+  "pass": "password123"
 }
 
 ### 5. Start RTSP Stream (using ONVIF credentials)
