@@ -1,4 +1,6 @@
 @baseUrl = http://localhost:5001
+@localCameraUrl = http://localhost:9090
+
 ### ONVIF CCTV Backend API Requests
 
 ### 1. Root / Server Info
@@ -80,3 +82,15 @@ Content-Type: application/json
 
 ### 14. Proxy Snapshot Image
 GET {{baseUrl}}/api/snapshot?snapshotUrl=http%3A%2F%2F192.168.1.100%2Fonvif%2Fsnapshot.jpg&user=admin&pass=password123
+
+### 15. Send Camera Alert
+POST {{localCameraUrl}}/camera-alert
+Content-Type: application/json
+
+{
+  "fileName": "2026-10-03_10-54.jpg",
+  "deviceName": "CP_Plus_Wi-Fi_Camera"
+}
+
+### 16. Send Resume TV Playback Notification
+GET {{localCameraUrl}}/camera-alert/resume-tv
