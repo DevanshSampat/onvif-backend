@@ -365,7 +365,7 @@ async function runWorkerLoop() {
       console.error('[Alert Worker Process] Error in TS worker loop:', err.message);
     }
 
-    await sleep(5000);
+    await sleep(1000 * (config.chunkDuration - 1));
   }
 }
 

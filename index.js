@@ -7,7 +7,7 @@ const checkConfig = () => {
     config = JSON.parse(fs.readFileSync('config.json', 'utf8'));
   }
   if(!config.detectionThreshold) {
-    config.detectionThreshold = 0.75;
+    config.detectionThreshold = 0.7;
   }
   if(!config.recordingType) {
     config.recordingType = 'event';
