@@ -1,6 +1,7 @@
 const ffmpeg = require('fluent-ffmpeg');
 const fs = require('fs');
 const path = require('path');
+const { ALERTS_DIR } = require('./detectionService');
 
 const RECORDINGS_DIR = path.join(__dirname, 'recordings');
 const TEMP_DIR = path.join(__dirname, 'temp');
@@ -141,6 +142,9 @@ function cleanupRecordingsStorage() {
         if (totalSizeBytes <= maxStorageBytes) break;
         try {
           fs.unlinkSync(item.filePath);
+          if (fs.existsSync(path.join(ALERTS_DIR, item.file.replace('.mp4', '.jpg')))) {
+            fs.unlinkSync(path.join(ALERTS_DIR, item.file.replace('.mp4', '.jpg')));
+          }
           totalSizeBytes -= item.size;
           console.log(`[Recorder] Pruned oldest recording: ${item.file} (${(item.size / (1024 * 1024)).toFixed(2)} MB). Remaining: ${(totalSizeBytes / (1024 * 1024 * 1024)).toFixed(2)} GB`);
         } catch (err) {
