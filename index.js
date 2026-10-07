@@ -1,4 +1,31 @@
 require('dotenv').config();
+const fs = require('fs');
+
+const checkConfig = () => {
+  let config = {};
+  if (fs.existsSync('config.json')) {
+    config = JSON.parse(fs.readFileSync('config.json', 'utf8'));
+  }
+  if(!config.detectionThreshold) {
+    config.detectionThreshold = 0.75;
+  }
+  if(!config.recordingType) {
+    config.recordingType = 'event';
+  }
+  if(!config.chunkDuration) {
+    config.chunkDuration = 5;
+  }
+  if(!config.chunksPerList) {
+    config.chunksPerList = 12;
+  }
+  if(!config.recordingMaxStorageGB) {
+    config.recordingMaxStorageGB = 32;
+  }
+  fs.writeFileSync('config.json', JSON.stringify(config, null, 4));
+}
+
+checkConfig();
+
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
@@ -7,7 +34,6 @@ const streamService = require('./streamService');
 const recordingService = require('./recordingService');
 const detectionService = require('./detectionService');
 const { fork } = require('child_process');
-const fs = require('fs');
 const axios = require('axios');
 
 const app = express();
@@ -21,6 +47,8 @@ app.use(express.json());
 streamService.resetHlsDirectory();
 recordingService.processExistingTempBatches();
 detectionService.startAlertWorker();
+
+
 
 app.use('/hls', express.static(path.join(__dirname, 'public', 'hls'), {
   setHeaders: (res, filePath) => {

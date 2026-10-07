@@ -11,6 +11,19 @@ let watchdogInterval = null;
 let watchdogStartTimer = null;
 let lastMtime = 0;
 let stallCount = 0;
+const config = require('./config.json');
+
+function getConfig() {
+  try {
+    return JSON.parse(fs.readFileSync(path.join(__dirname, 'config.json'), 'utf8'));
+  } catch (e) {
+    try {
+      return require('./config.json');
+    } catch (err) {
+      return { recordingType: 'event', chunkDuration: 5, chunksPerList: 12 };
+    }
+  }
+}
 
 const HLS_DIR = path.join(__dirname, 'public', 'hls');
 const TEMP_DIR = path.join(__dirname, 'temp');
@@ -156,13 +169,17 @@ async function stopStream() {
     clearInterval(chunkPurgeInterval);
     chunkPurgeInterval = null;
   }
-  await recordingService.stopRecordingLoop();
 
-  // If stopping active stream, slice remaining segment range into temp before killing process
-  const tempHlsDir = sliceSegmentRangeToTemp();
-  if (tempHlsDir) {
-    const slotName = recordingService.getCurrentSlotName() || `${formatSegmentTimestamp(new Date())}_final.mp4`;
-    recordingService.convertHlsToMp4(tempHlsDir, slotName);
+  const cfg = getConfig();
+  if (cfg.recordingType === 'continuous') {
+    await recordingService.stopRecordingLoop();
+
+    // If stopping active stream, slice remaining segment range into temp before killing process
+    const tempHlsDir = sliceSegmentRangeToTemp();
+    if (tempHlsDir) {
+      const slotName = recordingService.getCurrentSlotName() || `${formatSegmentTimestamp(new Date())}_final.mp4`;
+      recordingService.convertHlsToMp4(tempHlsDir, slotName);
+    }
   }
 
   await killHlsProcessOnly();
@@ -188,11 +205,14 @@ let chunkPurgeInterval = null;
 function resetTrackedSegmentIndex() {
   lastTrackedSegmentIndex = 0;
   lastProcessedSegmentIndex = 0;
-  startChunkPurgeWatcher();
+  const cfg = getConfig();
+  if (cfg.recordingType === 'continuous') {
+    startChunkPurgeWatcher();
+  }
 }
 
 /**
- * Continuously purge old segments from public/hls as soon as there are > 5 newer chunks available
+ * Continuously purge old segments from public/hls as soon as there are > chunksPerList newer chunks available
  */
 function purgeProcessedSegments() {
   if (!fs.existsSync(HLS_DIR)) return;
@@ -208,12 +228,12 @@ function purgeProcessedSegments() {
       }
     }
 
-    if (tsFiles.length <= 5) return;
+    if (tsFiles.length <= config.chunksPerList) return;
 
     // Sort by segment index ascending
     tsFiles.sort((a, b) => a.index - b.index);
     const newestIndex = tsFiles[tsFiles.length - 1].index;
-    const safeDeleteMaxIndex = newestIndex - 5;
+    const safeDeleteMaxIndex = newestIndex - config.chunksPerList;
 
     // Delete processed segments that are below or equal to lastProcessedSegmentIndex AND <= safeDeleteMaxIndex
     for (const seg of tsFiles) {
@@ -323,7 +343,7 @@ function sliceSegmentRangeToTemp() {
   // Immediately run purge check
   purgeProcessedSegments();
 
-  console.log(`[HLS Slice] Marked segments up to stream${newestIndex}.ts as processed. Purging as >5 new chunks arrive.`);
+  console.log(`[HLS Slice] Marked segments up to stream${newestIndex}.ts as processed. Purging as > ${config.chunksPerList} new chunks arrive.`);
 
   return tempHlsDir;
 }
@@ -412,9 +432,9 @@ function runHlsStreamWithEncoder(rtspUrl, playlistPath, encoder, canFallback = t
         ...encoder.options,
         '-c:a aac',
         '-b:a 128k',
-        '-force_key_frames', 'expr:gte(t,n_forced*5)',
-        '-hls_time 5',
-        '-hls_list_size 12',
+        '-force_key_frames', `expr:gte(t,n_forced*${config.chunkDuration})`,
+        `-hls_time ${config.chunkDuration}`,
+        `-hls_list_size ${config.chunksPerList}`,
         '-hls_flags omit_endlist+discont_start',
         `-start_number ${startNumber}`,
       ])
@@ -572,10 +592,13 @@ async function startStream(rtspUrl, options = {}) {
 
   currentActiveRtspUrl = targetUrl;
 
-  // Trigger 10-minute interval MP4 recording manager
-  recordingService.startRecordingLoop(targetUrl).catch((err) => {
-    console.error('Failed to start recording loop:', err.message);
-  });
+  // Trigger 10-minute interval MP4 recording manager for continuous recording
+  const cfg = getConfig();
+  if (cfg.recordingType === 'continuous') {
+    recordingService.startRecordingLoop(targetUrl).catch((err) => {
+      console.error('Failed to start recording loop:', err.message);
+    });
+  }
 
   return await startHlsProcess(targetUrl);
 }

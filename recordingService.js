@@ -4,12 +4,33 @@ const path = require('path');
 
 const RECORDINGS_DIR = path.join(__dirname, 'recordings');
 const TEMP_DIR = path.join(__dirname, 'temp');
-const RETENTION_MS = 24 * 60 * 60 * 1000; // 24 hours in milliseconds
+const HLS_DIR = path.join(__dirname, 'public', 'hls');
 
 let currentRtspUrl = null;
 let rotationTimer = null;
 let isRecording = false;
 let currentSlotName = null;
+
+function getConfig() {
+  try {
+    return JSON.parse(fs.readFileSync(path.join(__dirname, 'config.json'), 'utf8'));
+  } catch (e) {
+    try {
+      return require('./config.json');
+    } catch (err) {
+      return { recordingMaxStorageGB: 32, recordingType: 'event', chunkDuration: 5, chunksPerList: 12 };
+    }
+  }
+}
+
+/**
+ * Extract HLS segment index from filename (e.g. stream12.ts -> 12)
+ */
+function getSegmentIndexFromFilename(filename) {
+  if (!filename) return null;
+  const match = filename.match(/stream(\d+)\.ts$/);
+  return match ? parseInt(match[1], 10) : null;
+}
 
 /**
  * Ensure recordings and temp directories exist
@@ -24,7 +45,7 @@ function ensureDirs() {
 }
 
 /**
- * Format date to YYYY-MM-DD_HH:MM
+ * Format date to YYYY-MM-DD_HH-MM
  */
 function formatSegmentTimestamp(date) {
   const pad = (n) => String(n).padStart(2, '0');
@@ -70,34 +91,73 @@ function getCurrentSlotName() {
 }
 
 /**
- * Clean up recordings older than 24 hours
+ * Get maximum storage limit in bytes from config.json (recordingMaxStorageGB)
  */
-function cleanupOldRecordings() {
+function getMaxStorageBytes() {
+  const cfg = getConfig();
+  const maxGB = typeof cfg.recordingMaxStorageGB === 'number' ? cfg.recordingMaxStorageGB : 32;
+  return maxGB * 1024 * 1024 * 1024;
+}
+
+/**
+ * Clean up recordings if total size of recordings directory exceeds recordingMaxStorageGB
+ * Deletes oldest recordings until total size is within the configured limit.
+ */
+function cleanupRecordingsStorage() {
   ensureDirs();
-  const now = Date.now();
-  console.log('[Recorder] Executing 24-hour retention cleanup...');
+  const maxStorageBytes = getMaxStorageBytes();
+  const maxStorageGB = (maxStorageBytes / (1024 * 1024 * 1024)).toFixed(2);
 
   try {
     const files = fs.readdirSync(RECORDINGS_DIR);
-    for (const file of files) {
-      if (file.endsWith('.mp4')) {
-        const filePath = path.join(RECORDINGS_DIR, file);
-        const stats = fs.statSync(filePath);
-        const ageMs = now - stats.mtimeMs;
+    const recordingFiles = [];
+    let totalSizeBytes = 0;
 
-        if (ageMs > RETENTION_MS) {
-          console.log(`[Recorder] Deleting recording older than 24 hours: ${file}`);
-          try {
-            fs.unlinkSync(filePath);
-          } catch (e) {
-            console.error(`[Recorder] Failed to delete ${file}:`, e.message);
+    for (const file of files) {
+      const filePath = path.join(RECORDINGS_DIR, file);
+      try {
+        const stats = fs.statSync(filePath);
+        if (stats.isFile()) {
+          totalSizeBytes += stats.size;
+          if (file.endsWith('.mp4')) {
+            recordingFiles.push({
+              file,
+              filePath,
+              size: stats.size,
+              mtimeMs: stats.mtimeMs,
+            });
           }
+        }
+      } catch (e) {}
+    }
+
+    if (totalSizeBytes > maxStorageBytes) {
+      console.log(`[Recorder] Total recordings size (${(totalSizeBytes / (1024 * 1024 * 1024)).toFixed(2)} GB) exceeds limit (${maxStorageGB} GB). Pruning oldest recordings...`);
+
+      // Sort oldest first (smallest mtimeMs)
+      recordingFiles.sort((a, b) => a.mtimeMs - b.mtimeMs);
+
+      for (const item of recordingFiles) {
+        if (totalSizeBytes <= maxStorageBytes) break;
+        try {
+          fs.unlinkSync(item.filePath);
+          totalSizeBytes -= item.size;
+          console.log(`[Recorder] Pruned oldest recording: ${item.file} (${(item.size / (1024 * 1024)).toFixed(2)} MB). Remaining: ${(totalSizeBytes / (1024 * 1024 * 1024)).toFixed(2)} GB`);
+        } catch (err) {
+          console.error(`[Recorder] Failed to delete ${item.file}:`, err.message);
         }
       }
     }
   } catch (err) {
     console.error('[Recorder] Cleanup error:', err.message);
   }
+}
+
+/**
+ * Backward compatibility alias for retention cleanup
+ */
+function cleanupOldRecordings() {
+  cleanupRecordingsStorage();
 }
 
 /**
@@ -174,7 +234,7 @@ function convertHlsToMp4(tempHlsDir, outputMp4Filename) {
       .output(outputPath);
 
     command.on('end', () => {
-      console.log(`[HLS Converter] Successfully generated 10-min MP4: ${outputMp4Filename}`);
+      console.log(`[HLS Converter] Successfully generated MP4: ${outputMp4Filename}`);
       try {
         fs.rmSync(tempHlsDir, { recursive: true, force: true });
       } catch (e) {}
@@ -336,6 +396,90 @@ function getRecordingsList() {
   }
 }
 
+/**
+ * Slice TS segments for an event recording from (startStream - 1) to (currentStream + 1) into a temp HLS batch directory
+ */
+function sliceEventSegmentsToTemp(startStream, currentStream) {
+  ensureDirs();
+  const startIdx = getSegmentIndexFromFilename(startStream);
+  const currentIdx = getSegmentIndexFromFilename(currentStream);
+
+  if (startIdx === null || currentIdx === null) {
+    console.warn(`[Event Recorder] Invalid stream segment parameters: start=${startStream}, current=${currentStream}`);
+    return null;
+  }
+
+  // start from the start stream - 1 (if it exists)
+  const prevStartTs = `stream${startIdx - 1}.ts`;
+  const hasPrevStart = fs.existsSync(path.join(HLS_DIR, prevStartTs));
+  const effectiveStartIdx = hasPrevStart ? startIdx - 1 : startIdx;
+
+  // end at current stream + 1 (if it exists)
+  const nextEndTs = `stream${currentIdx + 1}.ts`;
+  const hasNextEnd = fs.existsSync(path.join(HLS_DIR, nextEndTs));
+  const effectiveEndIdx = hasNextEnd ? currentIdx + 1 : currentIdx;
+
+  console.log(`[Event Recorder] Slicing segments from stream${effectiveStartIdx}.ts to stream${effectiveEndIdx}.ts (from start: ${startStream}, current: ${currentStream})`);
+
+  const targetSegments = [];
+  for (let i = effectiveStartIdx; i <= effectiveEndIdx; i++) {
+    const segFilename = `stream${i}.ts`;
+    const segPath = path.join(HLS_DIR, segFilename);
+    if (fs.existsSync(segPath) && fs.statSync(segPath).size > 0) {
+      targetSegments.push(segFilename);
+    }
+  }
+
+  if (targetSegments.length === 0) {
+    console.warn(`[Event Recorder] No existing segments found on disk between stream${effectiveStartIdx}.ts and stream${effectiveEndIdx}.ts`);
+    return null;
+  }
+
+  const tempBatchName = `event_hls_${Date.now()}`;
+  const tempHlsDir = path.join(TEMP_DIR, tempBatchName);
+  fs.mkdirSync(tempHlsDir, { recursive: true });
+
+  const tempPlaylistPath = path.join(tempHlsDir, 'stream.m3u8');
+  const cfg = getConfig();
+  const chunkDur = cfg.chunkDuration || 5;
+
+  const playlistLines = [
+    '#EXTM3U',
+    '#EXT-X-VERSION:3',
+    `#EXT-X-TARGETDURATION:${chunkDur}`,
+    '#EXT-X-MEDIA-SEQUENCE:0',
+  ];
+
+  for (const seg of targetSegments) {
+    const srcFile = path.join(HLS_DIR, seg);
+    const destFile = path.join(tempHlsDir, seg);
+    try {
+      fs.copyFileSync(srcFile, destFile);
+      playlistLines.push(`#EXTINF:${chunkDur}.000000,`);
+      playlistLines.push(seg);
+    } catch (e) {
+      console.error(`[Event Recorder] Failed to copy segment ${seg}:`, e.message);
+    }
+  }
+
+  playlistLines.push('#EXT-X-ENDLIST');
+  fs.writeFileSync(tempPlaylistPath, playlistLines.join('\n'));
+
+  return tempHlsDir;
+}
+
+/**
+ * Save event recording as alertFileName.mp4 (replaces .jpg with .mp4) in recordings directory
+ */
+async function createEventRecording(startStream, currentStream, alertFileName) {
+  const tempHlsDir = sliceEventSegmentsToTemp(startStream, currentStream);
+  if (!tempHlsDir) return null;
+
+  const mp4Filename = alertFileName.replace(/\.jpe?g$/i, '.mp4');
+  console.log(`[Event Recorder] Generating event recording: ${mp4Filename} from sliced segments`);
+  return convertHlsToMp4(tempHlsDir, mp4Filename);
+}
+
 module.exports = {
   startRecordingLoop,
   stopRecordingLoop,
@@ -343,6 +487,11 @@ module.exports = {
   processExistingTempBatches,
   getCurrentSlotName,
   getRecordingsList,
+  cleanupRecordingsStorage,
+  cleanupOldRecordings,
+  sliceEventSegmentsToTemp,
+  createEventRecording,
   RECORDINGS_DIR,
   TEMP_DIR,
+  HLS_DIR,
 };

@@ -9,7 +9,7 @@ const RESUME_URL = 'http://localhost:9090/camera-alert/resume-tv';
 async function sendResumeTVPlaybackNotification() {
   try {
     console.log(`[FCM Notifier] Sending resume TV playback notification`);
-    await axios.get(RESUME_URL);
+    await axios.get(RESUME_URL, { timeout: 10000 });
     console.log(`[FCM Notifier] Resume TV playback notification successfully sent`);
   } catch (err) {
     console.error('[FCM Notifier] Failed to send resume TV playback notification:', err.response?.data || err.message);
@@ -19,10 +19,15 @@ async function sendResumeTVPlaybackNotification() {
 
 async function sendCameraAlertNotification(fileName) {
   try {
-    const credentials = JSON.parse(fs.readFileSync('credentials.json', 'utf8'));
-    const deviceName = credentials.device;
-    console.log(`[FCM Notifier] Sending camera-alert for ${fileName}...`);
-    await axios.post(ALERT_URL, { fileName, deviceName });
+    let deviceName = 'Camera';
+    if (fs.existsSync('credentials.json')) {
+      try {
+        const credentials = JSON.parse(fs.readFileSync('credentials.json', 'utf8'));
+        deviceName = credentials.device || credentials.deviceName || 'Camera';
+      } catch (e) {}
+    }
+    console.log(`[FCM Notifier] Sending camera-alert for ${fileName} (device: ${deviceName})...`);
+    await axios.post(ALERT_URL, { fileName, deviceName }, { timeout: 10000 });
     console.log(`[FCM Notifier] Camera alert successfully sent for ${fileName}`);
   } catch (err) {
     console.error('[FCM Notifier] Failed to send camera alert:', err.response?.data || err.message);

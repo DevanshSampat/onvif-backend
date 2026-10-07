@@ -6,17 +6,35 @@ const tf = require('@tensorflow/tfjs');
 require('@tensorflow/tfjs-backend-wasm');
 const cocoSsd = require('@tensorflow-models/coco-ssd');
 const { sendCameraAlertNotification, sendResumeTVPlaybackNotification } = require('./fcmNotifier');
+const recordingService = require('./recordingService');
 
 const ALERTS_DIR = path.join(__dirname, 'human_detection_alerts');
 const ALERTS_PROCESSING_DIR = path.join(__dirname, 'alerts_processing');
 const HLS_DIR = path.join(__dirname, 'public', 'hls');
 let isAlertSent = false;
 
+const config = require('./config.json');
+
+function getConfig() {
+  try {
+    return JSON.parse(fs.readFileSync(path.join(__dirname, 'config.json'), 'utf8'));
+  } catch (e) {
+    try {
+      return require('./config.json');
+    } catch (err) {
+      return { recordingType: 'event', chunkDuration: 5, chunksPerList: 12, detectionThreshold: 0.75 };
+    }
+  }
+}
+
 const ONE_MINUTE_MS = 60 * 1000;
 
 let model = null;
 let lastProcessedTsIndex = null;
 let lastPersonDetectionTimestamp = 0;
+let humanDetectionStartStream = null;
+let alertFileName = null;
+let humanDetectionCurrentStream = null;
 
 function ensureDirs() {
   if (!fs.existsSync(ALERTS_DIR)) {
@@ -25,6 +43,71 @@ function ensureDirs() {
   if (!fs.existsSync(ALERTS_PROCESSING_DIR)) {
     fs.mkdirSync(ALERTS_PROCESSING_DIR, { recursive: true });
   }
+}
+
+/**
+ * Continuously purge old segments from public/hls as soon as there are > chunksPerList newer chunks available
+ */
+function purgeChunks(processedIndex) {
+  if (!fs.existsSync(HLS_DIR)) return;
+
+  try {
+    const files = fs.readdirSync(HLS_DIR);
+    const tsFiles = [];
+
+    for (const file of files) {
+      const match = file.match(/stream(\d+)\.ts$/);
+      if (match) {
+        tsFiles.push({ filename: file, index: parseInt(match[1], 10) });
+      }
+    }
+
+    const cfg = getConfig();
+    const chunksPerList = cfg.chunksPerList || 12;
+
+    if (tsFiles.length <= chunksPerList) return;
+
+    tsFiles.sort((a, b) => a.index - b.index);
+    const newestIndex = tsFiles[tsFiles.length - 1].index;
+    const safeDeleteMaxIndex = newestIndex - chunksPerList;
+
+    for (const seg of tsFiles) {
+      if (seg.index <= processedIndex && seg.index <= safeDeleteMaxIndex) {
+        const filePath = path.join(HLS_DIR, seg.filename);
+        try {
+          fs.unlinkSync(filePath);
+        } catch (e) { }
+      }
+    }
+  } catch (err) { }
+}
+
+/**
+ * Finalize event recording and resume TV playback when detection timeout expires
+ */
+function finalizeEventRecording() {
+  if (!isAlertSent) return;
+  console.log('[Alert Worker Process] Event ended (1 min timeout without detection). Finalizing event...');
+  isAlertSent = false;
+
+  const cfg = getConfig();
+  if (cfg.recordingType === 'event' && humanDetectionStartStream && alertFileName) {
+    const startStream = humanDetectionStartStream;
+    const currentStream = humanDetectionCurrentStream || humanDetectionStartStream;
+    const alertName = alertFileName;
+    console.log(`[Alert Worker Process] Saving event recording for ${alertName} (${startStream} -> ${currentStream})`);
+    recordingService.createEventRecording(startStream, currentStream, alertName).catch((err) => {
+      console.error('[Alert Worker Process] Error creating event recording:', err.message);
+    });
+  }
+
+  humanDetectionStartStream = null;
+  humanDetectionCurrentStream = null;
+  alertFileName = null;
+
+  sendResumeTVPlaybackNotification().catch((err) => {
+    console.error('[Alert Worker Process] Error sending resume TV playback notification:', err.message);
+  });
 }
 
 async function loadModel() {
@@ -54,8 +137,8 @@ function isImageDistorted(rawImageData) {
     }
   }
 
-  // Distorted if over 5% of total image height contains corrupt macroblock noise bands
-  return (noisyRowsCount / h) > 0.05;
+  // Distorted if over 3% of total image height contains corrupt macroblock noise bands
+  return (noisyRowsCount / h) > 0.03;
 }
 
 async function analyzeFrameForPerson(imagePath) {
@@ -97,8 +180,8 @@ async function analyzeFrameForPerson(imagePath) {
       const avgWidth = widthSum / personDetections.length;
       const avgHeight = heightSum / personDetections.length;
 
-      // Apply score (>= 0.7) and bbox dimensions (width >= 350, height >= 500) filters
-      if (avgScore >= 0.7 && avgWidth >= 350 && avgHeight >= 500) {
+      // Apply score (>= detectionThreshold) and bbox dimensions (width >= 350, height >= 500) filters
+      if (avgScore >= config.detectionThreshold && avgWidth >= 350 && avgHeight >= 500) {
         return { detected: true, score: avgScore, width: avgWidth, height: avgHeight };
       }
     }
@@ -186,21 +269,22 @@ async function processTsFile(tsFilename) {
           fs.copyFileSync(framePath, alertFilePath);
           console.log(`[Human Detection ALERT] Valid person detected in ${tsFilename} (${frameFile})! Score: ${(result.score * 100).toFixed(1)}%. Saved alert: human_detection_alerts/${alertFilename}`);
           lastPersonDetectionTimestamp = now;
-
+          alertFileName = alertFilename;
+          humanDetectionStartStream = tsFilename;
+          humanDetectionCurrentStream = tsFilename;
+          isAlertSent = true;
           // Send FCM camera alert API request
-          sendCameraAlertNotification(alertFilename).then(() => { isAlertSent = true; }).catch((err) => {
+          sendCameraAlertNotification(alertFilename).catch((err) => {
             console.error('[Alert Worker Process] Error sending camera alert notification:', err.message);
           });
         } else {
           console.log(`[Alert Worker Process] Person detected in ${tsFilename} (${frameFile}), but rate-limited (< 1 min since last alert). Updating timestamp silently.`);
           lastPersonDetectionTimestamp = now;
+          humanDetectionCurrentStream = tsFilename;
         }
       } else {
         if (isAlertSent && lastPersonDetectionTimestamp < Date.now() - ONE_MINUTE_MS) {
-          isAlertSent = false;
-          sendResumeTVPlaybackNotification().catch((err) => {
-            console.error('[Alert Worker Process] Error sending resume TV playback notification:', err.message);
-          });
+          finalizeEventRecording();
         }
       }
     }
@@ -259,6 +343,23 @@ async function runWorkerLoop() {
         lastProcessedTsIndex = nextIndex;
         nextIndex = lastProcessedTsIndex + 1;
         nextFilename = `stream${nextIndex}.ts`;
+
+        // While detecting, if start stream is null, purge chunks as currently purging
+        const cfg = getConfig();
+        if (cfg.recordingType === 'event' && humanDetectionStartStream === null) {
+          purgeChunks(lastProcessedTsIndex);
+        }
+      }
+
+      // Check if active alert timed out while waiting for new chunks
+      if (isAlertSent && lastPersonDetectionTimestamp < Date.now() - ONE_MINUTE_MS) {
+        finalizeEventRecording();
+      }
+
+      // Purge check when waiting for new chunks if start stream is null
+      const cfg = getConfig();
+      if (cfg.recordingType === 'event' && humanDetectionStartStream === null && lastProcessedTsIndex !== null) {
+        purgeChunks(lastProcessedTsIndex);
       }
     } catch (err) {
       console.error('[Alert Worker Process] Error in TS worker loop:', err.message);
