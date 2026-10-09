@@ -371,7 +371,6 @@ async function stopRecordingLoop() {
  */
 function getRecordingsList() {
   ensureDirs();
-  cleanupOldRecordings();
 
   try {
     const files = fs.readdirSync(RECORDINGS_DIR);
@@ -380,12 +379,14 @@ function getRecordingsList() {
       .map((file) => {
         const filePath = path.join(RECORDINGS_DIR, file);
         const stats = fs.statSync(filePath);
+        const alertExists = fs.existsSync(path.join(ALERTS_DIR, `${file.replace('.mp4', '.jpg')}`));
         return {
           filename: file,
           sizeBytes: stats.size,
           sizeMB: (stats.size / (1024 * 1024)).toFixed(2),
           createdAt: stats.birthtime || stats.mtime,
           modifiedAt: stats.mtime,
+          alertExists: alertExists,
           downloadUrl: `/api/recordings/download?id=${file}`,
           streamUrl: `/api/recordings/stream/${file}`,
           playUrl: `/api/recordings/stream/${file}`,
