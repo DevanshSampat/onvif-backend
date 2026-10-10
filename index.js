@@ -21,6 +21,12 @@ const checkConfig = () => {
   if(!config.recordingMaxStorageGB) {
     config.recordingMaxStorageGB = 32;
   }
+  if(!config.minDetectionWidth) {
+    config.minDetectionWidth = 350;
+  }
+  if(!config.minDetectionHeight) {
+    config.minDetectionHeight = 500;
+  }
   fs.writeFileSync('config.json', JSON.stringify(config, null, 4));
 }
 

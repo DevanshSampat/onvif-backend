@@ -181,7 +181,7 @@ async function analyzeFrameForPerson(imagePath) {
       const avgHeight = heightSum / personDetections.length;
 
       // Apply score (>= detectionThreshold) and bbox dimensions (width >= 350, height >= 500) filters
-      if (avgScore >= config.detectionThreshold && avgWidth >= 350 && avgHeight >= 500) {
+      if (avgScore >= config.detectionThreshold && avgWidth >= config.minDetectionWidth && avgHeight >= config.minDetectionHeight) {
         return { detected: true, score: avgScore, width: avgWidth, height: avgHeight };
       }
     }
