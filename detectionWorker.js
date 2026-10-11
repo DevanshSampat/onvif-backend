@@ -132,7 +132,7 @@ function isImageDistorted(rawImageData) {
       const idx = (y * w + x) * 3;
       diff += Math.abs(data[idx] - data[idx + 3]) + Math.abs(data[idx + 1] - data[idx + 4]) + Math.abs(data[idx + 2] - data[idx + 5]);
     }
-    if ((diff / w) > 45) {
+    if ((diff / w) > 25) {
       noisyRowsCount++;
     }
   }
