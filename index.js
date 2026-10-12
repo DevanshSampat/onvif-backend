@@ -1,5 +1,8 @@
 require('dotenv').config();
 const fs = require('fs');
+const detectionService = require('./detectionService');
+const path = require('path');
+const recordingService = require('./recordingService');
 
 const checkConfig = () => {
   let config = {};
@@ -30,15 +33,24 @@ const checkConfig = () => {
   fs.writeFileSync('config.json', JSON.stringify(config, null, 4));
 }
 
+const deleteAlertsWithoutRecordings = () => {
+  const alerts = fs.readdirSync(detectionService.ALERTS_DIR);
+  alerts.forEach((alert) => {
+    const alertName = alert.split('.')[0];
+    if(!fs.existsSync(path.join(recordingService.RECORDINGS_DIR, `${alertName}.mp4`))) {
+      console.log(`No recording found for ${alertName}`);
+      fs.unlinkSync(path.join(detectionService.ALERTS_DIR, alert));
+    }
+  })
+}
+
 checkConfig();
+deleteAlertsWithoutRecordings();
 
 const express = require('express');
 const cors = require('cors');
-const path = require('path');
 const onvifService = require('./onvifService');
 const streamService = require('./streamService');
-const recordingService = require('./recordingService');
-const detectionService = require('./detectionService');
 const { fork } = require('child_process');
 const axios = require('axios');
 
