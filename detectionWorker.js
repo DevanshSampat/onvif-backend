@@ -124,6 +124,7 @@ function isImageDistorted(rawImageData) {
   const w = rawImageData.width;
   const h = rawImageData.height;
   const data = rawImageData.data;
+  const totalPixels = w * h;
 
   let noisyRowsCount = 0;
   for (let y = 0; y < h; y++) {
@@ -137,8 +138,28 @@ function isImageDistorted(rawImageData) {
     }
   }
 
-  // Distorted if over 3% of total image height contains corrupt macroblock noise bands
-  return h > 540 && (noisyRowsCount / h) > 0.03;
+  // 1. Corrupt macroblock / salt-and-pepper row tearing
+  if (h > 540 && (noisyRowsCount / h) > 0.03) {
+    return true;
+  }
+
+  // 2. Decoder concealment smear (solid white / washed-out gray smeared block from dropped UDP I-slices)
+  let smearPixels = 0;
+  for (let i = 0; i < data.length; i += 3) {
+    const r = data[i];
+    const g = data[i + 1];
+    const b = data[i + 2];
+    if ((r >= 235 && g >= 235 && b >= 235) ||
+        (Math.abs(r - 128) < 3 && Math.abs(g - 128) < 3 && Math.abs(b - 128) < 3)) {
+      smearPixels++;
+    }
+  }
+  const smearRatio = smearPixels / totalPixels;
+  if (smearRatio > 0.15) {
+    return true;
+  }
+
+  return false;
 }
 
 async function analyzeFrameForPerson(imagePath) {

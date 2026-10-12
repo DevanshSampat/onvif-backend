@@ -352,26 +352,11 @@ function sliceSegmentRangeToTemp() {
  * Select the optimal H.264 video encoder based on host OS
  */
 function getPrimaryVideoEncoder() {
-  if (process.platform === 'darwin') {
-    return {
-      name: 'h264_videotoolbox',
-      options: [
-        '-c:v h264_videotoolbox',
-        '-b:v 2M',
-        '-pix_fmt yuv420p',
-      ],
-    };
-  }
-
-  // Windows & Linux: libx264 ultrafast zerolatency for real-time low-latency transcoding
   return {
-    name: 'libx264',
+    name: 'copy',
     options: [
-      '-c:v libx264',
-      '-preset ultrafast',
-      '-tune zerolatency',
-      '-pix_fmt yuv420p',
-      '-b:v 2M',
+      '-c:v copy',
+      '-tag:v hvc1',
     ],
   };
 }
@@ -419,25 +404,32 @@ function runHlsStreamWithEncoder(rtspUrl, playlistPath, encoder, canFallback = t
     const startNumber = getNextStartNumber();
     console.log(`[HLS] Spawning FFmpeg with encoder: ${encoder.name} (start_number: ${startNumber})...`);
 
-    // FFmpeg options: hls_list_size 5 makes the livestream unseekable (real-time edge window)
+    const outputOpts = [
+      ...encoder.options,
+      '-c:a aac',
+      '-b:a 128k',
+      `-hls_time ${config.chunkDuration}`,
+      `-hls_list_size ${config.chunksPerList}`,
+      '-hls_flags omit_endlist+discont_start',
+      `-start_number ${startNumber}`,
+    ];
+
+    if (encoder.name !== 'copy') {
+      outputOpts.push('-force_key_frames', `expr:gte(t,n_forced*${config.chunkDuration})`);
+    }
+
+    // FFmpeg options: hls_list_size makes the livestream unseekable (real-time edge window)
     const command = ffmpeg(rtspUrl)
       .inputOptions([
         '-rtsp_transport udp',
+        '-buffer_size 33554432',
+        '-max_delay 1000000',
         '-timeout 5000000',
-        '-reorder_queue_size 0',
+        '-reorder_queue_size 4000',
         '-analyzeduration 2000000',
         '-probesize 2000000',
       ])
-      .outputOptions([
-        ...encoder.options,
-        '-c:a aac',
-        '-b:a 128k',
-        '-force_key_frames', `expr:gte(t,n_forced*${config.chunkDuration})`,
-        `-hls_time ${config.chunkDuration}`,
-        `-hls_list_size ${config.chunksPerList}`,
-        '-hls_flags omit_endlist+discont_start',
-        `-start_number ${startNumber}`,
-      ])
+      .outputOptions(outputOpts)
       .output(playlistPath);
 
     const lastStderrLines = [];
