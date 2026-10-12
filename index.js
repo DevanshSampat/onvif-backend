@@ -9,25 +9,25 @@ const checkConfig = () => {
   if (fs.existsSync('config.json')) {
     config = JSON.parse(fs.readFileSync('config.json', 'utf8'));
   }
-  if(!config.detectionThreshold) {
+  if (!config.detectionThreshold) {
     config.detectionThreshold = 0.7;
   }
-  if(!config.recordingType) {
+  if (!config.recordingType) {
     config.recordingType = 'event';
   }
-  if(!config.chunkDuration) {
+  if (!config.chunkDuration) {
     config.chunkDuration = 5;
   }
-  if(!config.chunksPerList) {
+  if (!config.chunksPerList) {
     config.chunksPerList = 12;
   }
-  if(!config.recordingMaxStorageGB) {
+  if (!config.recordingMaxStorageGB) {
     config.recordingMaxStorageGB = 32;
   }
-  if(!config.minDetectionWidth) {
+  if (!config.minDetectionWidth) {
     config.minDetectionWidth = 350;
   }
-  if(!config.minDetectionHeight) {
+  if (!config.minDetectionHeight) {
     config.minDetectionHeight = 500;
   }
   fs.writeFileSync('config.json', JSON.stringify(config, null, 4));
@@ -37,7 +37,7 @@ const deleteAlertsWithoutRecordings = () => {
   const alerts = fs.readdirSync(detectionService.ALERTS_DIR);
   alerts.forEach((alert) => {
     const alertName = alert.split('.')[0];
-    if(!fs.existsSync(path.join(recordingService.RECORDINGS_DIR, `${alertName}.mp4`))) {
+    if (!fs.existsSync(path.join(recordingService.RECORDINGS_DIR, `${alertName}.mp4`))) {
       console.log(`No recording found for ${alertName}`);
       fs.unlinkSync(path.join(detectionService.ALERTS_DIR, alert));
     }
@@ -136,7 +136,7 @@ app.post('/api/connect', async (req, res) => {
  * Accepts either a direct rtspUrl OR credentials to fetch a fresh URL inline.
  */
 app.post('/api/stream/start', async (req, res) => {
-  if(fs.existsSync('public/hls/stream.m3u8')){
+  if (fs.existsSync('public/hls/stream.m3u8')) {
     return res.status(400).json({ success: false, error: 'Stream is already running' });
   }
   try {
