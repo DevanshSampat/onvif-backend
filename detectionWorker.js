@@ -138,7 +138,7 @@ function isImageDistorted(rawImageData) {
   }
 
   // Distorted if over 3% of total image height contains corrupt macroblock noise bands
-  return (noisyRowsCount / h) > 0.03;
+  return h > 540 && (noisyRowsCount / h) > 0.03;
 }
 
 async function analyzeFrameForPerson(imagePath) {

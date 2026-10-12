@@ -241,7 +241,7 @@ function purgeProcessedSegments() {
         const filePath = path.join(HLS_DIR, seg.filename);
         try {
           fs.unlinkSync(filePath);
-        } catch (e) {}
+        } catch (e) { }
       }
     }
   } catch (err) {
@@ -459,7 +459,7 @@ function runHlsStreamWithEncoder(rtspUrl, playlistPath, encoder, canFallback = t
         lastStderrLines.shift();
       }
       if (stderrLine.includes('error') || stderrLine.includes('Failed') || stderrLine.includes('timeout') || stderrLine.includes('Server returned') || stderrLine.includes('Connection refused')) {
-        console.warn(`[FFmpeg stderr] ${stderrLine}`);
+        // console.warn(`[FFmpeg stderr] ${stderrLine}`);
       }
     });
 
@@ -589,11 +589,14 @@ async function startStream(rtspUrl, options = {}) {
       targetUrl = targetUrl.replace('/channel1', '/channel0').replace('channel=1', 'channel=0');
     }
   }
+  const cfg = getConfig();
+  if (cfg.channelOverride) {
+    targetUrl = targetUrl.replace('/channel1', '/channel0').replace('/channel0', cfg.channelOverride);
+  }
 
   currentActiveRtspUrl = targetUrl;
 
   // Trigger 10-minute interval MP4 recording manager for continuous recording
-  const cfg = getConfig();
   if (cfg.recordingType === 'continuous') {
     recordingService.startRecordingLoop(targetUrl).catch((err) => {
       console.error('Failed to start recording loop:', err.message);
