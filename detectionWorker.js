@@ -180,8 +180,8 @@ async function analyzeFrameForPerson(imagePath) {
       const avgWidth = widthSum / personDetections.length;
       const avgHeight = heightSum / personDetections.length;
 
-      // Apply score (>= detectionThreshold) and bbox dimensions (width >= 350, height >= 500) filters
-      if (avgScore >= config.detectionThreshold && avgWidth >= config.minDetectionWidth && avgHeight >= config.minDetectionHeight) {
+      // Apply score (>= detectionThreshold) and bbox dimensions (width >= configured width, height >= configured height) filters
+      if (avgScore >= config.detectionThreshold && avgWidth >= config.minDetectionWidth * rawImageData.width && avgHeight >= config.minDetectionHeight * rawImageData.height) {
         return { detected: true, score: avgScore, width: avgWidth, height: avgHeight };
       }
     }
