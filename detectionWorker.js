@@ -34,6 +34,8 @@ let lastProcessedTsIndex = null;
 let lastPersonDetectionTimestamp = 0;
 let humanDetectionStartStream = null;
 let alertFileName = null;
+let peopleDetectedInAlert = 0;
+let confidence = 0;
 let humanDetectionCurrentStream = null;
 
 function ensureDirs() {
@@ -150,7 +152,7 @@ function isImageDistorted(rawImageData) {
     const g = data[i + 1];
     const b = data[i + 2];
     if ((r >= 235 && g >= 235 && b >= 235) ||
-        (Math.abs(r - 128) < 3 && Math.abs(g - 128) < 3 && Math.abs(b - 128) < 3)) {
+      (Math.abs(r - 128) < 3 && Math.abs(g - 128) < 3 && Math.abs(b - 128) < 3)) {
       smearPixels++;
     }
   }
@@ -203,7 +205,7 @@ async function analyzeFrameForPerson(imagePath) {
 
       // Apply score (>= detectionThreshold) and bbox dimensions (width >= configured width, height >= configured height) filters
       if (avgScore >= config.detectionThreshold && avgWidth >= config.minDetectionWidth * rawImageData.width && avgHeight >= config.minDetectionHeight * rawImageData.height) {
-        return { detected: true, score: avgScore, width: avgWidth, height: avgHeight };
+        return { detected: true, score: avgScore, width: avgWidth, height: avgHeight, people: personDetections.length };
       }
     }
 
@@ -294,10 +296,20 @@ async function processTsFile(tsFilename) {
           humanDetectionStartStream = tsFilename;
           humanDetectionCurrentStream = tsFilename;
           isAlertSent = true;
+          peopleDetectedInAlert = result.people;
+          confidence = result.score;
           // Send FCM camera alert API request
           sendCameraAlertNotification(alertFilename).catch((err) => {
             console.error('[Alert Worker Process] Error sending camera alert notification:', err.message);
           });
+        } else if (peopleDetectedInAlert > result.people || (peopleDetectedInAlert == result.people && confidence < result.score)) {
+          confidence = result.score;
+          peopleDetectedInAlert = result.people;
+          lastPersonDetectionTimestamp = now;
+          humanDetectionCurrentStream = tsFilename;
+          const alertFilePath = path.join(ALERTS_DIR, alertFileName);
+          fs.copyFileSync(framePath, alertFilePath);
+          console.log(`[Human Detection ALERT] Valid person detected in ${tsFilename} (${frameFile})! Score: ${(result.score * 100).toFixed(1)}%. Saved alert: human_detection_alerts/${alertFilename}`);
         } else {
           console.log(`[Alert Worker Process] Person detected in ${tsFilename} (${frameFile}), but rate-limited (< 1 min since last alert). Updating timestamp silently.`);
           lastPersonDetectionTimestamp = now;
