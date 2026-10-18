@@ -309,7 +309,7 @@ async function processTsFile(tsFilename) {
           humanDetectionCurrentStream = tsFilename;
           const alertFilePath = path.join(ALERTS_DIR, alertFileName);
           fs.copyFileSync(framePath, alertFilePath);
-          console.log(`[Human Detection ALERT] Valid person detected in ${tsFilename} (${frameFile})! Score: ${(result.score * 100).toFixed(1)}%. Saved alert: human_detection_alerts/${alertFilename}`);
+          console.log(`[Human Detection ALERT] Valid person detected in ${tsFilename} (${frameFile})! Score: ${(result.score * 100).toFixed(1)}%. Saved alert: human_detection_alerts/${alertFileName}`);
         } else {
           console.log(`[Alert Worker Process] Person detected in ${tsFilename} (${frameFile}), but rate-limited (< 1 min since last alert). Updating timestamp silently.`);
           lastPersonDetectionTimestamp = now;
