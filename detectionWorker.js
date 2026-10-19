@@ -302,7 +302,7 @@ async function processTsFile(tsFilename) {
           sendCameraAlertNotification(alertFilename).catch((err) => {
             console.error('[Alert Worker Process] Error sending camera alert notification:', err.message);
           });
-        } else if (peopleDetectedInAlert > result.people || (peopleDetectedInAlert == result.people && confidence < result.score)) {
+        } else if (result.people > peopleDetectedInAlert || (peopleDetectedInAlert == result.people && confidence < result.score)) {
           confidence = result.score;
           peopleDetectedInAlert = result.people;
           lastPersonDetectionTimestamp = now;
@@ -311,7 +311,7 @@ async function processTsFile(tsFilename) {
           fs.copyFileSync(framePath, alertFilePath);
           console.log(`[Human Detection ALERT] ${result.people} ${result.people > 1 ? 'people' : 'person'} detected in ${tsFilename} (${frameFile})! Score: ${(result.score * 100).toFixed(1)}%. Saved alert: human_detection_alerts/${alertFileName}`);
         } else {
-          console.log(`[Alert Worker Process] ${result.people} ${result.people > 1 ? 'people' : 'person '} detected in ${tsFilename} (${frameFile}), but rate-limited (< 1 min since last alert). Updating timestamp silently.`);
+          console.log(`[Alert Worker Process] ${result.people} ${result.people > 1 ? 'people' : 'person'} detected in ${tsFilename} (${frameFile}), but rate-limited (< 1 min since last alert). Updating timestamp silently.`);
           lastPersonDetectionTimestamp = now;
           humanDetectionCurrentStream = tsFilename;
         }
